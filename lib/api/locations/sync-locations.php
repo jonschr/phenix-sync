@@ -1,28 +1,73 @@
 <?php
 
 /**
- * Manage the overall sync process for locations.
+ * Schedule the locations sync process.
  *
- * @return  void.
+ * @return void
  */
-function phenixsync_locations_sync_process() {
+function phenixsync_schedule_locations_sync() {
+	if ( ! wp_next_scheduled( 'phenixsync_locations_cron_hook' ) ) {
+		wp_schedule_event( time(), 'hourly', 'phenixsync_locations_cron_hook' );
+	}
+}
+add_action( 'wp', 'phenixsync_schedule_locations_sync' );
+
+/**
+ * Initialize the sync process by fetching data and scheduling batch processing.
+ *
+ * @return void
+ */
+function phenixsync_locations_sync_init() {
 	$raw_response = phenixsync_locations_api_request();
 	$locations_array = phenixsync_locations_json_to_php_array( $raw_response );
 	
-	$count = 1;
+	// Store the locations array in a transient
+	set_transient( 'phenixsync_locations_data', $locations_array, HOUR_IN_SECONDS );
 	
-	foreach( $locations_array as $location ) {
-		if ( $count > 50 ) {
-			break; // Only process 10 locations at a time.
-		}
-		$post_id = phenixsync_locations_maybe_create_post( $location ); // the $post_id is either the ID of the existing post, or the ID of the new post.
-		phenixsync_locations_update_post( $location, $post_id );
-		$count++;
-	}
-} 
-add_action( 'wp_footer', 'phenixsync_locations_sync_process' );
+	// Schedule the first batch
+	wp_schedule_single_event( time(), 'phenixsync_process_batch', array( 0 ) );
+}
+add_action( 'phenixsync_locations_cron_hook', 'phenixsync_locations_sync_init' );
 
- 
+/**
+ * Process a batch of locations.
+ *
+ * @param int $offset The offset to start processing from.
+ * @return void
+ */
+function phenixsync_process_batch( $offset ) {
+	$locations_array = get_transient( 'phenixsync_locations_data' );
+	if ( ! $locations_array ) {
+		return;
+	}
+	
+	$batch_size = 10; // Process 10 locations per batch
+	$processed = 0;
+	$total = count( $locations_array );
+	
+	for ( $i = $offset; $i < $total && $processed < $batch_size; $i++ ) {
+		$location = $locations_array[$i];
+		$post_id = phenixsync_locations_maybe_create_post( $location );
+		phenixsync_locations_update_post( $location, $post_id );
+		$processed++;
+	}
+	
+	// Schedule the next batch if there are more locations to process
+	if ( $offset + $processed < $total ) {
+		wp_schedule_single_event( time() + 30, 'phenixsync_process_batch', array( $offset + $processed ) );
+	}
+}
+add_action( 'phenixsync_process_batch', 'phenixsync_process_batch' );
+
+/**
+ * Manual trigger for the sync process (for testing or admin-triggered syncs).
+ *
+ * @return void
+ */
+function phenixsync_trigger_sync() {
+	do_action( 'phenixsync_locations_cron_hook' );
+}
+
 /**
  * Function to make an API request for locations with a custom timeout and POST data.
  *

@@ -49,6 +49,7 @@ function phenixsync_process_batch( $offset ) {
 		$location = $locations_array[$i];
 		$post_id = phenixsync_locations_maybe_create_post( $location );
 		phenixsync_locations_update_post( $location, $post_id );
+		phenixsync_locations_update_post_taxonomies( $location, $post_id );
 		$processed++;
 	}
 	
@@ -244,6 +245,97 @@ function phenixsync_locations_update_post( $location, $post_id ) {
 		$sanitized_key = sanitize_key( $key );
 		$sanitized_value = ( $value === "" || $value === null ) ? null : sanitize_text_field( $value );
 		update_post_meta( $post_id, $sanitized_key, $sanitized_value );
+	}
+}
+
+function phenixsync_locations_update_post_taxonomies( $location, $post_id ) {
+	
+	// get the 'country' post meta field
+	$country = $location['country'];
+	
+	// make this all caps
+	$country = strtoupper( $country );
+	
+	if ( $country === 'USA' ) {
+		// The country is the USA, so we need to set the state taxonomy
+		$state = $location['state'];
+		
+		// make this all caps
+		$state = strtoupper( $state );
+		
+		$states = [
+			// US States
+			'AL' => 'Alabama',
+			'AK' => 'Alaska', 
+			'AZ' => 'Arizona',
+			'AR' => 'Arkansas',
+			'CA' => 'California',
+			'CO' => 'Colorado',
+			'CT' => 'Connecticut',
+			'DE' => 'Delaware',
+			'FL' => 'Florida',
+			'GA' => 'Georgia',
+			'HI' => 'Hawaii',
+			'ID' => 'Idaho',
+			'IL' => 'Illinois',
+			'IN' => 'Indiana',
+			'IA' => 'Iowa',
+			'KS' => 'Kansas',
+			'KY' => 'Kentucky',
+			'LA' => 'Louisiana',
+			'ME' => 'Maine',
+			'MD' => 'Maryland',
+			'MA' => 'Massachusetts',
+			'MI' => 'Michigan',
+			'MN' => 'Minnesota',
+			'MS' => 'Mississippi',
+			'MO' => 'Missouri',
+			'MT' => 'Montana',
+			'NE' => 'Nebraska',
+			'NV' => 'Nevada',
+			'NH' => 'New Hampshire',
+			'NJ' => 'New Jersey',
+			'NM' => 'New Mexico',
+			'NY' => 'New York',
+			'NC' => 'North Carolina',
+			'ND' => 'North Dakota',
+			'OH' => 'Ohio',
+			'OK' => 'Oklahoma',
+			'OR' => 'Oregon',
+			'PA' => 'Pennsylvania',
+			'RI' => 'Rhode Island',
+			'SC' => 'South Carolina',
+			'SD' => 'South Dakota',
+			'TN' => 'Tennessee',
+			'TX' => 'Texas',
+			'UT' => 'Utah',
+			'VT' => 'Vermont',
+			'VA' => 'Virginia',
+			'WA' => 'Washington',
+			'WV' => 'West Virginia',
+			'WI' => 'Wisconsin',
+			'WY' => 'Wyoming',
+			'DC' => 'District of Columbia',
+		];
+	
+		if ( array_key_exists( $state, $states ) ) {
+			$state = $states[$state];
+		}
+
+	} elseif ( $country === 'UK' ) {
+		// The country is the UK, so we need to set the taxonomy to be the city.
+		$state = $location['city'];
+	} else {
+		// The country is neither the USA nor the UK, so we can't set a state or county taxonomy
+		return;
+	}
+	
+	$state_term = term_exists( $state, 'states' );
+	
+	if ( !$state_term ) {
+		$state_term = wp_insert_term( $state, 'states' );
+	} else {
+		wp_set_post_terms( $post_id, $state_term['term_id'], 'states' );
 	}
 }
 

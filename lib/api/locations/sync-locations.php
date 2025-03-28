@@ -7,7 +7,7 @@
  */
 function phenixsync_schedule_locations_sync() {
 	if ( ! wp_next_scheduled( 'phenixsync_locations_cron_hook' ) ) {
-		wp_schedule_event( time(), 'hourly', 'phenixsync_locations_cron_hook' );
+		wp_schedule_event( time(), 'daily', 'phenixsync_locations_cron_hook' );
 	}
 }
 add_action( 'wp', 'phenixsync_schedule_locations_sync' );
@@ -22,7 +22,7 @@ function phenixsync_locations_sync_init() {
 	$locations_array = phenixsync_locations_json_to_php_array( $raw_response );
 	
 	// Store the locations array in a transient
-	set_transient( 'phenixsync_locations_data', $locations_array, HOUR_IN_SECONDS );
+	set_transient( 'phenixsync_locations_data', $locations_array, DAY_IN_SECONDS );
 	
 	// Schedule the first batch
 	wp_schedule_single_event( time(), 'phenixsync_process_batch', array( 0 ) );

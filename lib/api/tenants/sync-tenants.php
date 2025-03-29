@@ -1,0 +1,297 @@
+<?php
+
+function phenixsync_professionals_test_sync_location() {
+	//! THIS FUNCTION BYPASSES THE FULL PROCESS FOR TESTING PURPOSES ONLY.
+	// phenixsync_sync_individual_location_professionals( 179 ); // 179 is the s3_index for the Greenfield location.
+	phenixsync_sync_individual_location_professionals( 755 ); // 755 is the s3_index for the Bellevue, WA location.
+}
+// add_action( 'wp_footer', 'phenixsync_professionals_test_sync_location' );
+
+/**
+ * Schedule the locations sync process.
+ *
+ * @return void
+ */
+function phenixsync_schedule_professionals_sync() {
+	if ( ! wp_next_scheduled( 'phenixsync_professionals_cron_hook' ) ) {
+		wp_schedule_event( time(), 'daily', 'phenixsync_professionals_cron_hook' );
+	}
+}
+add_action( 'wp', 'phenixsync_schedule_professionals_sync' );
+
+/**
+ * Do the sync process.
+ *
+ * @return  void.
+ */
+function phenixsync_professionals_manage_sync_process() {
+	
+	$location_ids = phenixsync_professionals_loop_through_locations_and_get_s3_location_ids();
+	$location_ids = array_unique( $location_ids );
+	
+	foreach( $location_ids as $s3_index ) {
+		// Schedule each location sync to run every 30 seconds
+		wp_schedule_single_event( time() + 30 * array_search($s3_index, $location_ids), 'phenixsync_sync_individual_location_professionals_event', array( $s3_index ) );
+	}
+
+	// Hook to handle the scheduled event
+	add_action( 'phenixsync_sync_individual_location_professionals_event', 'phenixsync_sync_individual_location_professionals' );
+}
+add_action( 'phenixsync_professionals_cron_hook', 'phenixsync_professionals_manage_sync_process' );
+
+/**
+ * Sync an individual location's professionals.
+ *
+ * @param   [type]  $s3_index  [$s3_index description]
+ *
+ * @return  [type]             [return description]
+ */
+function phenixsync_sync_individual_location_professionals( $s3_index ) {
+	// 179 is the s3_index for the Greenfield location.
+	$raw_response = phenixsync_professionals_api_request( $s3_index );
+	$php_array = phenixsync_professionals_get_php_array_from_raw_response( $raw_response );
+	
+	foreach( $php_array as $professional ) {
+		$post_id = phenixsync_professionals_maybe_create_post( $professional );
+		phenixsync_professionals_update_post( $professional, $post_id );
+	}
+}
+
+/**
+ * Loop through all of the locations and get the s3_index field from each one.
+ *
+ * @return  array an array of the s3_index fields from the locations CPT (just those values).
+ */
+function phenixsync_professionals_loop_through_locations_and_get_s3_location_ids() {
+	// loop through the 'locations' CPT and get the s3_index field from each one.
+	$args = array(
+		'post_type'      => 'locations',
+		'posts_per_page' => -1,
+	);
+	$posts = get_posts( $args );
+	$location_ids = array();
+
+	foreach ( $posts as $post ) {
+		$s3_index = get_post_meta( $post->ID, 's3_index', true );
+		if ( $s3_index ) {
+			$location_ids[] = $s3_index;
+		}
+	}
+
+	return $location_ids;
+}
+
+/**
+ * Function to make an API request for professionals with a custom timeout and POST data.
+ *
+ * @return string API response or error message.
+ */
+function phenixsync_professionals_api_request( $s3_index ) {
+	$api_url       = 'https://admin.ginasplatform.com/utilities/phenix_portal_sender.aspx';
+	$transient_key = 'phenixsync_professionals_raw_response_' . (int) $s3_index;
+	$cache_duration = 12 * HOUR_IN_SECONDS;
+
+	// Set time limit and memory limit
+	set_time_limit( 60 ); // Try setting a higher time limit
+	@ini_set( 'memory_limit', '256M' ); // Try setting a higher memory limit
+
+	// Try to retrieve the cached response
+	$cached_response = get_transient( $transient_key );
+	
+	// at the moment, the API doesn't work, so instead, we're going to get test-data.json from the same dir as this file, and return the content of that.
+	// $cached_response = file_get_contents( __DIR__ . '/test-data.json' );
+
+	if ( false !== $cached_response ) {
+		return $cached_response; // Return cached response
+	}
+
+	$args = array(
+		'timeout'  => 60,
+		'blocking' => true,
+		'headers'  => array( 'Content-Type' => 'application/x-www-form-urlencoded' ),
+		'method'   => 'POST',
+		'body'     => array(
+			'password' => 'LPJph7g3tT263BIfJ1',
+			'location_index' => $s3_index,
+		),
+	);
+
+	$response = wp_remote_request( $api_url, $args );
+
+	if ( is_wp_error( $response ) ) {
+		$error_message = $response->get_error_message();
+		$result        = "Error: " . esc_html( $error_message );
+		error_log( 'phenixsync_professionals_api_request WP_Error: ' . $error_message );
+	} else {
+		$response_code = wp_remote_retrieve_response_code( $response );
+		$response_body = wp_remote_retrieve_body( $response );
+
+		if ( 200 === (int) $response_code ) {
+			$result = $response_body; // Store raw response
+			
+			// Store the response in a transient, expires after $cache_duration seconds
+			$set_transient_result = set_transient( $transient_key, $result, $cache_duration );
+			if ( ! $set_transient_result ) {
+				error_log( 'Failed to set transient: ' . $transient_key );
+			}
+			
+		} else {
+			$result = "Request failed with status code: " . esc_html( (string) $response_code );
+			error_log( 'phenixsync_professionals_api_request HTTP Error: ' . $response_code . ' - ' . $result );
+
+		}
+	}
+
+	return $result;
+}
+
+function phenixsync_professionals_get_php_array_from_raw_response( $raw_response ) {
+	$php_array = json_decode( $raw_response, true );
+
+	if ( json_last_error() !== JSON_ERROR_NONE ) {
+		error_log( 'JSON decode error: ' . json_last_error_msg() );
+		return array();
+	}
+
+	return $php_array;
+	
+}
+
+function phenixsync_professionals_maybe_create_post( $professional ) {
+	
+	// Check if the professional already exists
+	$existing_post_id = phenixsync_professionals_get_post_by_external_id( $professional['S3_tenantID'] );
+
+	if ( $existing_post_id ) {
+		return $existing_post_id;
+	}
+	
+	$professional_post_details = array(
+		'post_title'  => $professional['salon_name'],
+		'post_type'   => 'professionals',
+		'post_status' => 'publish',
+		'meta_input'  => array(
+			's3_tenant_id'     => $professional['S3_tenantID'],
+		),
+	);
+	
+	$new_professional_post_id = wp_insert_post( $professional_post_details );
+	return $new_professional_post_id;
+}
+
+/**
+ * Update the post
+ *
+ * @param   array  $professional  	[$professional description]
+ * @param   [type]  $post_id       [$post_id description]
+ *
+ * @return  [type]                 [return description]
+ */
+function phenixsync_professionals_update_post( $professional, $post_id ) {
+	
+	$suites = $professional['suites'];
+	if ( $suites && is_array( $suites ) ) {
+		$suite_names = array();
+		
+		foreach( $suites as $suite ) {
+			$suite_names[] = $suite['suite_name'];
+		}
+		
+		$suites_string = implode( ', ', $suite_names );
+	}
+	
+	$corresponding_location = phenixsync_locations_get_post_by_external_id( $professional['S3_locationID'] );
+	
+	// get the address1, address2, city, state, zip, and country from the location post
+	$address1 = get_post_meta( $corresponding_location, 'address1', true );
+	$address2 = get_post_meta( $corresponding_location, 'address2', true );
+	$city = get_post_meta( $corresponding_location, 'city', true );
+	$state = get_post_meta( $corresponding_location, 'state', true );
+	$zip = get_post_meta( $corresponding_location, 'zip', true );
+	$country = get_post_meta( $corresponding_location, 'country', true );
+	
+	$details_we_want = array(
+		's3_location_id' => (int) $professional['S3_locationID'],
+		's3_tenant_id'   => (int) $professional['S3_tenantID'],
+		'suites'         => sanitize_text_field( $suites_string ),
+		'name'           => sanitize_text_field( $professional['name'] ),
+		'email'          => sanitize_email( $professional['email'] ),
+		'phone'          => sanitize_text_field( $professional['phone'] ),
+		'profile_image'  => esc_url_raw( $professional['profile_image'] ),
+		'instagram'      => esc_url_raw( $professional['instagram'] ),
+		'facebook'       => esc_url_raw( $professional['facebook'] ),
+		'x'              => sanitize_text_field( $professional['x'] ),
+		'website'        => esc_url_raw( $professional['website'] ),
+		'booking_link'   => esc_url_raw( $professional['booking_link'] ),
+		'photo'          => esc_url_raw( $professional['photo'] ),
+		'bio'            => sanitize_textarea_field( $professional['bio'] ),
+		'location_name'  => sanitize_text_field( $professional['location_name'] ),
+		'address1'  => sanitize_text_field( $address1 ),
+		'address2'  => sanitize_text_field( $address2 ),
+		'city'      => sanitize_text_field( $city ),
+		'state'     => sanitize_text_field( $state ),
+		'zip'       => sanitize_text_field( $zip ),
+		'country'   => sanitize_text_field( $country ),
+	);
+	
+	// let's update the post meta with these details
+	foreach( $details_we_want as $key => $value ) {
+		if ( ! empty( $value ) ) {
+			update_post_meta( $post_id, $key, $value );
+		}
+	}
+}
+
+function phenixsync_professionals_get_post_by_external_id( $external_id ) {
+	$args = array(
+		'post_type'      => 'professionals',
+		'posts_per_page' => 1,
+		'meta_key'       => 's3_index',
+		'meta_value'     => $external_id,
+	);
+
+	$posts = get_posts( $args );
+	
+	// delete all posts except the first one
+	if ( count( $posts ) > 1 ) {
+		$posts_to_delete = array_slice( $posts, 1 );
+		foreach( $posts_to_delete as $post ) {
+			wp_delete_post( $post->ID, true );
+		}
+	}
+
+	if ( ! empty( $posts ) ) {
+		return $posts[0]->ID;
+	}
+
+	return false;
+}
+
+
+
+/**
+ * Utility function to delete all professionals
+ *
+ * @return  void.
+ */
+function phenix_professionals_delete_all_professionals() {
+	$args = array(
+		'post_type'      => 'professionals',
+		'posts_per_page' => 100,
+		'fields'         => 'ids',
+	);
+
+	do {
+		$posts = get_posts( $args );
+
+		foreach ( $posts as $post_id ) {
+			wp_delete_post( $post_id, true );
+		}
+
+		// Pause for 5 seconds between batches
+		if ( ! empty( $posts ) ) {
+			sleep( 5 );
+		}
+	} while ( ! empty( $posts ) );
+}
+// add_action( 'init', 'phenix_professionals_delete_all_professionals' );

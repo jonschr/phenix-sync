@@ -77,7 +77,7 @@ function phenixsync_trigger_sync() {
 function phenixsync_locations_api_request() {
 	$api_url       = 'https://admin.ginasplatform.com/utilities/phenix_portal_locations_sender.aspx';
 	$transient_key = 'phenixsync_locations_raw_response';
-	$cache_duration = 6000000000000000; // 10 minutes in seconds
+	$cache_duration = 12 * HOUR_IN_SECONDS;
 
 	// Set time limit and memory limit
 	set_time_limit( 60 ); // Try setting a higher time limit
@@ -138,28 +138,29 @@ function phenixsync_locations_api_request() {
  * @param string $raw_response The raw JSON response.
  * @return array The decoded JSON response.
  */
-function phenixsync_locations_json_to_php_array( $raw_response ) {
+function phenixsync_locations_json_to_php_array($raw_response) {
 
 	// Check for error responses
-	if ( strpos( $raw_response, "Error:" ) === 0 || strpos( $raw_response, "Request failed" ) === 0 ) {
-		error_log( 'API request failed, cannot decode JSON. Response: ' . $raw_response );
-		return array( 'error' => 'API request failed: ' . $raw_response );
+	if (strpos($raw_response, "Error:") === 0 || strpos($raw_response, "Request failed") === 0) {
+		error_log('API request failed, cannot decode JSON. Response: ' . $raw_response);
+		return array('error' => 'API request failed: ' . $raw_response);
 	}
 
-	$response_php_array = json_decode( $raw_response, true );
+	$response_php_array = json_decode($raw_response, true);
 
-	if ( json_last_error() !== JSON_ERROR_NONE ) {
-		// Handle JSON decode error
+	if (json_last_error() !== JSON_ERROR_NONE) {
 		$json_error_message = json_last_error_msg();
-		error_log( 'JSON decode error: ' . $json_error_message . ' - Raw response: ' . substr( $raw_response, 0, 500 ) . '...' ); // Log the error and a snippet of the response
-		return array( 'error' => 'Failed to decode JSON: ' . $json_error_message );  // Return an error array
+		error_log('JSON decode error: ' . $json_error_message . ' - Raw response: ' . substr($raw_response, 0, 500) . '...');
+		return array('error' => 'Failed to decode JSON: ' . $json_error_message);
 	}
 
-	if ( !isset( $response_php_array['locations'] ) || !is_array( $response_php_array['locations'] ) ) {
-		return; // Don't proceed if there was an error
+	if (!isset($response_php_array['locations']) || !is_array($response_php_array['locations'])) {
+		return;
 	}
-	
-	return $response_php_array['locations'];
+
+	$locations = $response_php_array['locations'];
+
+	return $locations;
 }
 
 /**

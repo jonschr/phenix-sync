@@ -25,19 +25,23 @@ add_action( 'wp', 'phenixsync_schedule_professionals_sync' );
  * @return  void.
  */
 function phenixsync_professionals_manage_sync_process() {
-	
 	$location_ids = phenixsync_professionals_loop_through_locations_and_get_s3_location_ids();
 	$location_ids = array_unique( $location_ids );
 	
-	foreach( $location_ids as $s3_index ) {
-		// Schedule each location sync to run every 30 seconds
-		wp_schedule_single_event( time() + 30 * array_search($s3_index, $location_ids), 'phenixsync_sync_individual_location_professionals_event', array( $s3_index ) );
+	foreach( $location_ids as $key => $s3_index ) {
+		// Schedule each location sync with 30 second intervals
+		wp_schedule_single_event( 
+			time() + ( 30 * ($key + 1) ), 
+			'phenixsync_sync_individual_location_professionals_event', 
+			array( $s3_index ) 
+		);
 	}
-
-	// Hook to handle the scheduled event
-	add_action( 'phenixsync_sync_individual_location_professionals_event', 'phenixsync_sync_individual_location_professionals' );
 }
+
+// Hook should be outside the function
 add_action( 'phenixsync_professionals_cron_hook', 'phenixsync_professionals_manage_sync_process' );
+add_action( 'phenixsync_sync_individual_location_professionals_event', 'phenixsync_sync_individual_location_professionals' );
+
 
 /**
  * Sync an individual location's professionals.
@@ -53,7 +57,51 @@ function phenixsync_sync_individual_location_professionals( $s3_index ) {
 	
 	foreach( $php_array as $professional ) {
 		$post_id = phenixsync_professionals_maybe_create_post( $professional );
+		
+		if ( ! $post_id ) {
+			continue; // Skip if post creation failed
+		}
+		
 		phenixsync_professionals_update_post( $professional, $post_id );
+		phenixsync_professionals_update_post_taxonomies( $professional, $post_id );
+	}
+}
+
+function phenixsync_professionals_update_post_taxonomies( $professional, $post_id ) {
+	if ( ! is_array( $professional ) || ! isset( $professional['standard_services'] ) ) {
+		return;
+	}
+	
+	// clear the services taxonomy for this post: 
+	$terms = get_the_terms( $post_id, 'services' );
+	if ( $terms && ! is_wp_error( $terms ) ) {
+		foreach ( $terms as $term ) {
+			wp_remove_object_terms( $post_id, $term->term_id, 'services' );
+		}
+	}
+
+	$standard_services = $professional['standard_services'];
+	
+	if ( ! is_array( $standard_services ) || empty( $standard_services ) ) {
+		return;
+	}
+	
+	foreach ( $standard_services as $service ) {
+		if ( ! isset( $service['standard_category'] ) || empty( $service['standard_category'] ) ) {
+			continue;
+		}
+		
+		$term = str_replace('-', ' ', ucwords(strtolower($service['standard_category'])));
+		$service_term = term_exists( $term, 'services' );
+		
+		if ( ! $service_term ) {
+			$service_term = wp_insert_term( $term, 'services' );
+			if ( is_wp_error( $service_term ) ) {
+				continue;
+			}
+		}
+
+		wp_set_post_terms( $post_id, $service_term['term_id'], 'services', true );
 	}
 }
 
@@ -246,28 +294,28 @@ function phenixsync_professionals_get_post_by_external_id( $external_id ) {
 	$args = array(
 		'post_type'      => 'professionals',
 		'posts_per_page' => 1,
-		'meta_key'       => 's3_index',
+		'meta_key'       => 's3_tenant_id',
 		'meta_value'     => $external_id,
 	);
 
 	$posts = get_posts( $args );
 	
-	// delete all posts except the first one
+	// if there's more than one post, we need to delete the duplicates.
 	if ( count( $posts ) > 1 ) {
-		$posts_to_delete = array_slice( $posts, 1 );
-		foreach( $posts_to_delete as $post ) {
+		foreach ( array_slice( $posts, 1 ) as $post ) {
 			wp_delete_post( $post->ID, true );
 		}
 	}
-
+	// if there's no post, return false.
+	if ( empty( $posts ) ) {
+		return false;
+	}
+	
+	// if there's only one post, return the ID of that post.
 	if ( ! empty( $posts ) ) {
 		return $posts[0]->ID;
 	}
-
-	return false;
 }
-
-
 
 /**
  * Utility function to delete all professionals
@@ -294,4 +342,4 @@ function phenix_professionals_delete_all_professionals() {
 		}
 	} while ( ! empty( $posts ) );
 }
-// add_action( 'init', 'phenix_professionals_delete_all_professionals' );
+// add_action( 'wp_footer', 'phenix_professionals_delete_all_professionals' );

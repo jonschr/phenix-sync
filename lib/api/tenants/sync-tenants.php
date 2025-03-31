@@ -1,11 +1,26 @@
 <?php
 
 function phenixsync_professionals_test_sync_location() {
-	//! THIS FUNCTION BYPASSES THE FULL PROCESS FOR TESTING PURPOSES ONLY.
+	
+	// check if the current user is an admin
+	if ( ! current_user_can( 'administrator' ) ) {
+		return;
+	}
+	
+	// // get the 'sync' url parameter from the URL
+	// $sync = isset( $_GET['sync'] ) ? sanitize_text_field( $_GET['sync'] ) : false;
+	
+	// if ( $sync ) {
+	// 	// if the sync parameter is set, run the sync process for this location
+	// 	phenixsync_sync_individual_location_professionals( $sync );
+	// } else {
+		
+	// }
+	
 	// phenixsync_sync_individual_location_professionals( 179 ); // 179 is the s3_index for the Greenfield location.
-	phenixsync_sync_individual_location_professionals( 755 ); // 755 is the s3_index for the Bellevue, WA location.
+	// phenixsync_sync_individual_location_professionals( 1351 ); // 755 is the s3_index for the Bellevue, WA location.
 }
-// add_action( 'wp_footer', 'phenixsync_professionals_test_sync_location' );
+add_action( 'wp_footer', 'phenixsync_professionals_test_sync_location' );
 
 /**
  * Schedule the locations sync process.
@@ -41,7 +56,6 @@ function phenixsync_professionals_manage_sync_process() {
 // Hook should be outside the function
 add_action( 'phenixsync_professionals_cron_hook', 'phenixsync_professionals_manage_sync_process' );
 add_action( 'phenixsync_sync_individual_location_professionals_event', 'phenixsync_sync_individual_location_professionals' );
-
 
 /**
  * Sync an individual location's professionals.
@@ -169,7 +183,7 @@ function phenixsync_professionals_api_request( $s3_index ) {
 	if ( is_wp_error( $response ) ) {
 		$error_message = $response->get_error_message();
 		$result        = "Error: " . esc_html( $error_message );
-		error_log( 'phenixsync_professionals_api_request WP_Error: ' . $error_message );
+		error_log( 'phenixsync_professionals_api_request WP_Error: ' . $error_message );		
 	} else {
 		$response_code = wp_remote_retrieve_response_code( $response );
 		$response_body = wp_remote_retrieve_body( $response );
@@ -189,8 +203,68 @@ function phenixsync_professionals_api_request( $s3_index ) {
 
 		}
 	}
+	
+	// save some details about how this sync went.
+	phenix_save_pros_sync_details_to_location( $response, $s3_index );
 
 	return $result;
+}
+
+function phenix_save_pros_sync_details_to_location( $response, $s3_index ) {
+	// use the $s3_index to get the location post ID.
+	$args = array(
+		'post_type'      => 'locations',
+		'posts_per_page' => 1,
+		'meta_key'       => 's3_index',
+		'meta_value'     => $s3_index,
+	);
+	$posts = get_posts( $args );
+	if ( empty( $posts ) ) {
+		return;
+	}
+	$location_post_id = $posts[0]->ID;
+	
+	// get the response code and body
+	$response_code = wp_remote_retrieve_response_code( $response );
+	$response_body = wp_remote_retrieve_body( $response );
+	
+	// get the response time from our perspective
+	$response_time = date( 'Y-m-d H:i:s' );
+	// get the response size
+	$response_size = wp_remote_retrieve_header( $response, 'Content-Length' );
+	// get the response date
+	$response_date = wp_remote_retrieve_header( $response, 'Date' );
+
+	// get the existing details from the location post meta (we'll call this 'professionals_sync_details')
+	$existing_details = get_post_meta( $location_post_id, 'professionals_sync_details', true );
+	if ( ! $existing_details ) {
+		$existing_details = array();
+	}
+	// if the existing details are not an array, make them an array.
+	if ( ! is_array( $existing_details ) ) {
+		$existing_details = array();
+	}
+	
+	// save the response details to the location post meta. I'd like to insert this at the beginning of the array.
+	$details = array(
+		'response_code'        => $response_code,
+		// 'response_body'        => $response_body,
+		'response_time'        => $response_time,
+		'response_size'        => $response_size,
+		'response_date'        => $response_date,
+	);
+	
+	// add this to the beginning of the array
+	array_unshift( $existing_details, $details );
+	
+	// trim the array to 10 items.
+	if ( count( $existing_details ) > 10 ) {
+		$existing_details = array_slice( $existing_details, 0, 10 );
+	}
+	
+	// save the details to the location post meta.
+	$update_result = update_post_meta( $location_post_id, 'professionals_sync_details', $existing_details );
+	
 }
 
 function phenixsync_professionals_get_php_array_from_raw_response( $raw_response ) {

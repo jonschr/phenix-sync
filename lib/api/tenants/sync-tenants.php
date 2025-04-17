@@ -20,7 +20,7 @@ function phenixsync_professionals_test_sync_location() {
 	// phenixsync_sync_individual_location_professionals( 179 ); // 179 is the s3_index for the Greenfield location.
 	// phenixsync_sync_individual_location_professionals( 1351 ); // 755 is the s3_index for the Bellevue, WA location.
 }
-add_action( 'wp_footer', 'phenixsync_professionals_test_sync_location' );
+// add_action( 'wp_footer', 'phenixsync_professionals_test_sync_location' );
 
 /**
  * Schedule the locations sync process.
@@ -44,9 +44,9 @@ function phenixsync_professionals_manage_sync_process() {
 	$location_ids = array_unique( $location_ids );
 	
 	foreach( $location_ids as $key => $s3_index ) {
-		// Schedule each location sync with 30 second intervals
+		// Schedule each location sync with 10 second intervals
 		wp_schedule_single_event( 
-			time() + ( 30 * ($key + 1) ), 
+			time() + ( 10 * ($key + 1) ), 
 			'phenixsync_sync_individual_location_professionals_event', 
 			array( $s3_index ) 
 		);
@@ -399,21 +399,14 @@ function phenixsync_professionals_get_post_by_external_id( $external_id ) {
 function phenix_professionals_delete_all_professionals() {
 	$args = array(
 		'post_type'      => 'professionals',
-		'posts_per_page' => 100,
+		'posts_per_page' => -1,
 		'fields'         => 'ids',
 	);
-
-	do {
-		$posts = get_posts( $args );
-
-		foreach ( $posts as $post_id ) {
-			wp_delete_post( $post_id, true );
-		}
-
-		// Pause for 5 seconds between batches
-		if ( ! empty( $posts ) ) {
-			sleep( 5 );
-		}
-	} while ( ! empty( $posts ) );
+	
+	$posts = get_posts( $args );
+	
+	foreach ( $posts as $post_id ) {
+		wp_delete_post( $post_id, true );
+	}
 }
 // add_action( 'wp_footer', 'phenix_professionals_delete_all_professionals' );

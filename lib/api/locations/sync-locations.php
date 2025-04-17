@@ -25,7 +25,7 @@ function phenixsync_locations_sync_init() {
 	set_transient( 'phenixsync_locations_data', $locations_array, DAY_IN_SECONDS );
 	
 	// Schedule the first batch
-	wp_schedule_single_event( time(), 'phenixsync_process_batch', array( 0 ) );
+	wp_schedule_single_event( time(), 'phenixsync_do_process_batch', array( 0 ) );
 }
 add_action( 'phenixsync_locations_cron_hook', 'phenixsync_locations_sync_init' );
 
@@ -41,7 +41,7 @@ function phenixsync_process_batch( $offset ) {
 		return;
 	}
 	
-	$batch_size = 10; // Process 10 locations per batch
+	$batch_size = 50; // Process 50 locations per batch
 	$processed = 0;
 	$total = count( $locations_array );
 	
@@ -55,19 +55,10 @@ function phenixsync_process_batch( $offset ) {
 	
 	// Schedule the next batch if there are more locations to process
 	if ( $offset + $processed < $total ) {
-		wp_schedule_single_event( time() + 30, 'phenixsync_process_batch', array( $offset + $processed ) );
+		wp_schedule_single_event( time() + 5, 'phenixsync_do_process_batch', array( $offset + $processed ) );
 	}
 }
-add_action( 'phenixsync_process_batch', 'phenixsync_process_batch' );
-
-/**
- * Manual trigger for the sync process (for testing or admin-triggered syncs).
- *
- * @return void
- */
-function phenixsync_trigger_sync() {
-	do_action( 'phenixsync_locations_cron_hook' );
-}
+add_action( 'phenixsync_do_process_batch', 'phenixsync_process_batch' );
 
 /**
  * Function to make an API request for locations with a custom timeout and POST data.
@@ -338,6 +329,15 @@ function phenixsync_locations_update_post_taxonomies( $location, $post_id ) {
 	} else {
 		wp_set_post_terms( $post_id, $state_term['term_id'], 'states' );
 	}
+}
+
+/**
+ * Manual trigger for the sync process (for testing or admin-triggered syncs).
+ *
+ * @return void
+ */
+function phenixsync_trigger_sync() {
+	do_action( 'phenixsync_locations_cron_hook' );
 }
 
 function phenix_locations_delete_all_locations() {

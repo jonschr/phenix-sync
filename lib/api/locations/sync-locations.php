@@ -21,6 +21,9 @@ function phenixsync_locations_sync_init() {
 	$raw_response = phenixsync_locations_api_request();
 	$locations_array = phenixsync_locations_json_to_php_array( $raw_response );
 	
+	// Check for locations on our site that no longer exist in the API response and cull them.
+	phenixsync_remove_deleted_locations( $locations_array );
+	
 	// Store the locations array in a transient
 	set_transient( 'phenixsync_locations_data', $locations_array, DAY_IN_SECONDS );
 	
@@ -28,6 +31,33 @@ function phenixsync_locations_sync_init() {
 	wp_schedule_single_event( time(), 'phenixsync_do_process_batch', array( 0 ) );
 }
 add_action( 'phenixsync_locations_cron_hook', 'phenixsync_locations_sync_init' );
+
+/** 
+ * Remove locations that no longer exist in the API response.
+ */
+function phenixsync_remove_deleted_locations( $locations_array ) {
+	
+	if ( ! is_array( $locations_array ) || empty( $locations_array ) ) {
+		return;
+	}
+	
+	// Get all existing locations
+	$args = array(
+		'post_type'      => 'locations',
+		'posts_per_page' => -1,
+		'post_status'    => 'any',
+	);
+	
+	$existing_posts = get_posts( $args );
+	
+	foreach ( $existing_posts as $post ) {
+		$post_meta = get_post_meta( $post->ID, 's3_index', true );
+		
+		if ( ! in_array( $post_meta, array_column( $locations_array, 'S3_index' ) ) ) {
+			wp_delete_post( $post->ID, true );
+		}
+	}
+}
 
 /**
  * Process a batch of locations.

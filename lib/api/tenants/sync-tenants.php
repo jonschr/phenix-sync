@@ -331,6 +331,8 @@ function phenixsync_professionals_update_post( $professional, $post_id ) {
 	$state = get_post_meta( $corresponding_location, 'state', true );
 	$zip = get_post_meta( $corresponding_location, 'zip', true );
 	$country = get_post_meta( $corresponding_location, 'country', true );
+	$latitude = get_post_meta( $corresponding_location, 'latitude', true );
+	$longitude = get_post_meta( $corresponding_location, 'longitude', true );
 	
 	$details_we_want = array(
 		's3_location_id' => (int) $professional['S3_locationID'],
@@ -354,6 +356,8 @@ function phenixsync_professionals_update_post( $professional, $post_id ) {
 		'state'     => sanitize_text_field( $state ),
 		'zip'       => sanitize_text_field( $zip ),
 		'country'   => sanitize_text_field( $country ),
+		'latitude'   => sanitize_text_field( $latitude ),
+		'longitude'   => sanitize_text_field( $longitude ),
 	);
 	
 	// let's update the post meta with these details

@@ -41,6 +41,12 @@ function phenixsync_remove_deleted_locations( $locations_array ) {
 		return;
 	}
 	
+	// if the locations array has less than 50 items, we don't need to do anything.
+	// this is because we only want to remove locations if we're sure this is a real array with location data.
+	if ( count( $locations_array ) < 50 ) {
+		return;
+	}
+	
 	// Get all existing locations
 	$args = array(
 		'post_type'      => 'locations',

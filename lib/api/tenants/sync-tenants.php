@@ -63,6 +63,7 @@ add_action( 'phenixsync_sync_individual_location_professionals_event', 'phenixsy
  * @param string $s3_tenant_id The S3 tenant ID.
  * @return string|false The s3_location_id if found, false otherwise.
  */
+/*
 function phenixsync_get_s3_location_id_from_s3_tenant_id( $s3_tenant_id ) {
 	$args = array(
 		'post_type'      => 'professionals',
@@ -82,6 +83,7 @@ function phenixsync_get_s3_location_id_from_s3_tenant_id( $s3_tenant_id ) {
 	}
 	return false;
 }
+*/
 
 /**
  * Sync professionals for a specific location using s3_tenant_id.
@@ -92,6 +94,7 @@ function phenixsync_get_s3_location_id_from_s3_tenant_id( $s3_tenant_id ) {
  * @param string $s3_tenant_id The S3 tenant ID of a professional.
  * @return bool|WP_Error True on success, WP_Error on failure.
  */
+/*
 function phenixsync_sync_professionals_by_tenant_id( $s3_tenant_id ) {
 	$s3_location_id = phenixsync_get_s3_location_id_from_s3_tenant_id( $s3_tenant_id );
 
@@ -108,11 +111,14 @@ function phenixsync_sync_professionals_by_tenant_id( $s3_tenant_id ) {
 	
 	return true;
 }
+*/
 
 // run phenixsync_sync_professionals_by_tenant_id on wp_footer for 184917
+/*
 add_action( 'wp_footer', function() {
 	$result = phenixsync_sync_professionals_by_tenant_id( '184917' );
 }, 100 );
+*/
 
 /**
  * Sync an individual location's professionals.
@@ -155,40 +161,41 @@ function phenixsync_sync_individual_location_professionals( $s3_index, $force_re
 }
 
 /**
- * Register the REST API endpoint for syncing professionals by s3_tenant_id.
+ * Register the REST API endpoint for syncing professionals by s3_location_id.
  */
-function phenixsync_register_sync_professionals_by_tenant_endpoint() {
-	register_rest_route( 'phenix-sync/v1', '/professionals/(?P<s3_tenant_id>[a-zA-Z0-9_-]+)', array(
+function phenixsync_register_sync_professionals_by_location_endpoint() {
+	register_rest_route( 'phenix-sync/v1', '/professionals/(?P<s3_location_id>[a-zA-Z0-9_-]+)', array(
 		'methods'             => 'GET',
-		'callback'            => 'phenixsync_rest_sync_professionals_by_tenant_callback',
+		'callback'            => 'phenixsync_rest_sync_professionals_by_location_callback',
 		'args'                => array(
-			's3_tenant_id' => array(
+			's3_location_id' => array(
 				'validate_callback' => function( $param, $request, $key ) {
 					return is_string( $param ) && preg_match( '/^[a-zA-Z0-9_-]+$/', $param );
 				},
 				'required' => true,
+				'description' => 'The S3 Location ID.',
 			),
 		),
 		// No permission_callback to make it public
 	) );
 }
-add_action( 'rest_api_init', 'phenixsync_register_sync_professionals_by_tenant_endpoint' );
+add_action( 'rest_api_init', 'phenixsync_register_sync_professionals_by_location_endpoint' );
 
 /**
- * Callback for the REST API endpoint to sync professionals by s3_tenant_id.
+ * Callback for the REST API endpoint to sync professionals by s3_location_id.
  *
  * @param WP_REST_Request $request The request object.
  * @return WP_REST_Response|WP_Error The response object or WP_Error on failure.
  */
-function phenixsync_rest_sync_professionals_by_tenant_callback( WP_REST_Request $request ) {
-	$s3_tenant_id = $request->get_param( 's3_tenant_id' );
+function phenixsync_rest_sync_professionals_by_location_callback( WP_REST_Request $request ) {
+	$s3_location_id = $request->get_param( 's3_location_id' );
 
-	// Rate Limiting: Check if this s3_tenant_id has been processed recently
-	$rate_limit_transient_key = 'phenixsync_pro_ratelimit_' . sanitize_key( $s3_tenant_id );
+	// Rate Limiting: Check if this s3_location_id has been processed recently
+	$rate_limit_transient_key = 'phenixsync_pro_loc_ratelimit_' . sanitize_key( $s3_location_id );
 	if ( get_transient( $rate_limit_transient_key ) ) {
 		return new WP_Error(
 			'too_many_requests',
-			'Too many requests for this tenant. Please try again later.',
+			'Too many requests for this location. Please try again later.',
 			array( 'status' => 429 )
 		);
 	}
@@ -196,7 +203,9 @@ function phenixsync_rest_sync_professionals_by_tenant_callback( WP_REST_Request 
 	// Set the rate limit transient - e.g., 10 seconds
 	set_transient( $rate_limit_transient_key, true, 10 );
 
-	$result = phenixsync_sync_professionals_by_tenant_id( $s3_tenant_id );
+	// Directly call the function to sync professionals for the given s3_location_id
+	// The 'true' argument forces a refresh of the API data for that location.
+	$result = phenixsync_sync_individual_location_professionals( $s3_location_id, true );
 
 	if ( is_wp_error( $result ) ) {
 		$error_data = $result->get_error_data();
@@ -209,14 +218,7 @@ function phenixsync_rest_sync_professionals_by_tenant_callback( WP_REST_Request 
 	}
 
 	if ( $result === true ) {
-		// Attempt to get s3_location_id again for the response message, as it's not directly returned by phenixsync_sync_professionals_by_tenant_id
-		$s3_location_id = phenixsync_get_s3_location_id_from_s3_tenant_id( $s3_tenant_id );
-		$message = 'Successfully initiated sync for professionals associated with s3_tenant_id: ' . esc_html( $s3_tenant_id );
-		if ( $s3_location_id ) {
-			$message .= ' (s3_location_id: ' . esc_html( $s3_location_id ) . ').';
-		} else {
-			$message .= '.';
-		}
+		$message = 'Successfully initiated sync for professionals at s3_location_id: ' . esc_html( $s3_location_id ) . '.';
 		return new WP_REST_Response( array(
 			'success' => true,
 			'message' => $message,
@@ -225,7 +227,7 @@ function phenixsync_rest_sync_professionals_by_tenant_callback( WP_REST_Request 
 
 	return new WP_REST_Response( array(
 		'success' => false,
-		'message' => 'An unknown error occurred during the sync process.',
+		'message' => 'An unknown error occurred during the sync process for s3_location_id: ' . esc_html( $s3_location_id ),
 	), 500 );
 }
 

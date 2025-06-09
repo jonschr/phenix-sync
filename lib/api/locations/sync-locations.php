@@ -110,7 +110,7 @@ function phenixsync_process_batch( $offset ) {
 	
 	// Schedule the next batch if there are more locations to process
 	if ( $offset + $processed < $total ) {
-		wp_schedule_single_event( time() + 5, 'phenixsync_do_process_batch', array( $offset + $processed ) );
+		wp_schedule_single_event( time() + 2, 'phenixsync_do_process_batch', array( $offset + $processed ) );
 	} else {
 		// Optional: Clear transient after all batches are processed if desired
 		// delete_transient( 'phenixsync_locations_data' );
@@ -478,15 +478,6 @@ function phenixsync_locations_update_post_taxonomies( $S3_index, $post_id ) {
 	}
 }
 
-/**
- * Manual trigger for the sync process (for testing or admin-triggered syncs).
- *
- * @return void
- */
-function phenixsync_trigger_sync() {
-	do_action( 'phenixsync_locations_cron_hook' );
-}
-
 function phenix_locations_delete_all_locations() {
 	$args = array(
 		'post_type'      => 'locations',
@@ -499,7 +490,7 @@ function phenix_locations_delete_all_locations() {
 		wp_delete_post( $post->ID, true );
 	}
 }
-// add_action( 'init', 'phenix_locations_delete_all_locations' );
+// add_action( 'wp_footer', 'phenix_locations_delete_all_locations' );
 
 /**
  * Register a REST API endpoint for syncing a single location.

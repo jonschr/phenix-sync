@@ -46,7 +46,7 @@ function phenixsync_professionals_manage_sync_process() {
 	foreach( $location_ids as $key => $s3_index ) {
 		// Schedule each location sync with 10 second intervals
 		wp_schedule_single_event( 
-			time() + ( 10 * ($key + 1) ), 
+			time() + ( 2 * ($key + 1) ), 
 			'phenixsync_sync_individual_location_professionals_event', 
 			array( $s3_index ) 
 		);
@@ -58,27 +58,175 @@ add_action( 'phenixsync_professionals_cron_hook', 'phenixsync_professionals_mana
 add_action( 'phenixsync_sync_individual_location_professionals_event', 'phenixsync_sync_individual_location_professionals' );
 
 /**
+ * Get the s3_location_id from a professional's s3_tenant_id.
+ *
+ * @param string $s3_tenant_id The S3 tenant ID.
+ * @return string|false The s3_location_id if found, false otherwise.
+ */
+function phenixsync_get_s3_location_id_from_s3_tenant_id( $s3_tenant_id ) {
+	$args = array(
+		'post_type'      => 'professionals',
+		'posts_per_page' => 1,
+		'meta_key'       => 's3_tenant_id',
+		'meta_value'     => $s3_tenant_id,
+		'fields'         => 'ids', // Only get post IDs
+	);
+	$professional_posts = get_posts( $args );
+
+	if ( ! empty( $professional_posts ) ) {
+		$professional_post_id = $professional_posts[0];
+		$s3_location_id = get_post_meta( $professional_post_id, 's3_location_id', true );
+		if ( $s3_location_id ) {
+			return $s3_location_id;
+		}
+	}
+	return false;
+}
+
+/**
+ * Sync professionals for a specific location using s3_tenant_id.
+ *
+ * This function will find the s3_location_id associated with the s3_tenant_id
+ * and then trigger a sync for all professionals at that location, ensuring fresh data.
+ *
+ * @param string $s3_tenant_id The S3 tenant ID of a professional.
+ * @return bool|WP_Error True on success, WP_Error on failure.
+ */
+function phenixsync_sync_professionals_by_tenant_id( $s3_tenant_id ) {
+	$s3_location_id = phenixsync_get_s3_location_id_from_s3_tenant_id( $s3_tenant_id );
+
+	if ( ! $s3_location_id ) {
+		return new WP_Error( 's3_location_id_not_found', 'Could not find s3_location_id for the given s3_tenant_id.', array( 'status' => 404 ) );
+	}
+
+	// Call phenixsync_sync_individual_location_professionals with force_refresh set to true
+	$result = phenixsync_sync_individual_location_professionals( $s3_location_id, true );
+
+	if ( is_wp_error( $result ) ) {
+		return $result;
+	}
+	
+	return true;
+}
+
+// run phenixsync_sync_professionals_by_tenant_id on wp_footer for 184917
+add_action( 'wp_footer', function() {
+	$result = phenixsync_sync_professionals_by_tenant_id( '184917' );
+}, 100 );
+
+/**
  * Sync an individual location's professionals.
  *
- * @param   [type]  $s3_index  [$s3_index description]
- *
- * @return  [type]             [return description]
+ * @param string $s3_index The S3 index (s3_location_id) of the location.
+ * @param bool $force_refresh Whether to force a refresh of the API data transient.
+ * @return bool|WP_Error True on success, WP_Error on failure or if API request fails.
  */
-function phenixsync_sync_individual_location_professionals( $s3_index ) {
-	// 179 is the s3_index for the Greenfield location.
+function phenixsync_sync_individual_location_professionals( $s3_index, $force_refresh = false ) {
+	if ( $force_refresh ) {
+		$transient_key = 'phenixsync_professionals_raw_response_' . (int) $s3_index;
+		delete_transient( $transient_key );
+		error_log("Transient deleted for s3_index: $s3_index due to force_refresh.");
+	}
+
 	$raw_response = phenixsync_professionals_api_request( $s3_index );
+
+	// Check if API request resulted in an error string
+	if ( strpos( $raw_response, "Error:" ) === 0 || strpos( $raw_response, "Request failed with status code:" ) === 0 ) {
+		error_log( "phenixsync_sync_individual_location_professionals: API request failed for s3_index $s3_index. Response: $raw_response" );
+		return new WP_Error( 'api_request_failed', $raw_response, array( 'status' => 500 ) );
+	}
+
 	$php_array = phenixsync_professionals_get_php_array_from_raw_response( $raw_response );
 	
 	foreach( $php_array as $professional ) {
 		$post_id = phenixsync_professionals_maybe_create_post( $professional );
 		
-		if ( ! $post_id ) {
+		if ( ! $post_id || is_wp_error( $post_id ) ) {
+			// Log error if $post_id is WP_Error or false
+			$error_message = is_wp_error( $post_id ) ? $post_id->get_error_message() : 'Post creation/retrieval failed.';
+			error_log( "phenixsync_sync_individual_location_professionals: Failed to create or retrieve post for professional with S3_tenantID: " . (isset($professional['S3_tenantID']) ? $professional['S3_tenantID'] : 'N/A') . ". Error: " . $error_message );
 			continue; // Skip if post creation failed
 		}
 		
 		phenixsync_professionals_update_post( $professional, $post_id );
 		phenixsync_professionals_update_post_taxonomies( $professional, $post_id );
 	}
+	return true;
+}
+
+/**
+ * Register the REST API endpoint for syncing professionals by s3_tenant_id.
+ */
+function phenixsync_register_sync_professionals_by_tenant_endpoint() {
+	register_rest_route( 'phenix-sync/v1', '/professionals/(?P<s3_tenant_id>[a-zA-Z0-9_-]+)', array(
+		'methods'             => 'GET',
+		'callback'            => 'phenixsync_rest_sync_professionals_by_tenant_callback',
+		'args'                => array(
+			's3_tenant_id' => array(
+				'validate_callback' => function( $param, $request, $key ) {
+					return is_string( $param ) && preg_match( '/^[a-zA-Z0-9_-]+$/', $param );
+				},
+				'required' => true,
+			),
+		),
+		// No permission_callback to make it public
+	) );
+}
+add_action( 'rest_api_init', 'phenixsync_register_sync_professionals_by_tenant_endpoint' );
+
+/**
+ * Callback for the REST API endpoint to sync professionals by s3_tenant_id.
+ *
+ * @param WP_REST_Request $request The request object.
+ * @return WP_REST_Response|WP_Error The response object or WP_Error on failure.
+ */
+function phenixsync_rest_sync_professionals_by_tenant_callback( WP_REST_Request $request ) {
+	$s3_tenant_id = $request->get_param( 's3_tenant_id' );
+
+	// Rate Limiting: Check if this s3_tenant_id has been processed recently
+	$rate_limit_transient_key = 'phenixsync_pro_ratelimit_' . sanitize_key( $s3_tenant_id );
+	if ( get_transient( $rate_limit_transient_key ) ) {
+		return new WP_Error(
+			'too_many_requests',
+			'Too many requests for this tenant. Please try again later.',
+			array( 'status' => 429 )
+		);
+	}
+
+	// Set the rate limit transient - e.g., 10 seconds
+	set_transient( $rate_limit_transient_key, true, 10 );
+
+	$result = phenixsync_sync_professionals_by_tenant_id( $s3_tenant_id );
+
+	if ( is_wp_error( $result ) ) {
+		$error_data = $result->get_error_data();
+		$status = isset( $error_data['status'] ) ? $error_data['status'] : 500;
+		return new WP_REST_Response( array(
+			'success' => false,
+			'message' => $result->get_error_message(),
+			'code'    => $result->get_error_code(),
+		), $status );
+	}
+
+	if ( $result === true ) {
+		// Attempt to get s3_location_id again for the response message, as it's not directly returned by phenixsync_sync_professionals_by_tenant_id
+		$s3_location_id = phenixsync_get_s3_location_id_from_s3_tenant_id( $s3_tenant_id );
+		$message = 'Successfully initiated sync for professionals associated with s3_tenant_id: ' . esc_html( $s3_tenant_id );
+		if ( $s3_location_id ) {
+			$message .= ' (s3_location_id: ' . esc_html( $s3_location_id ) . ').';
+		} else {
+			$message .= '.';
+		}
+		return new WP_REST_Response( array(
+			'success' => true,
+			'message' => $message,
+		), 200 );
+	}
+
+	return new WP_REST_Response( array(
+		'success' => false,
+		'message' => 'An unknown error occurred during the sync process.',
+	), 500 );
 }
 
 function phenixsync_professionals_update_post_taxonomies( $professional, $post_id ) {
@@ -227,7 +375,7 @@ function phenix_save_pros_sync_details_to_location( $response, $s3_index ) {
 	// get the response code and body
 	$response_code = wp_remote_retrieve_response_code( $response );
 	$response_body = wp_remote_retrieve_body( $response );
-	
+
 	// get the response time from our perspective
 	$response_time = date( 'Y-m-d H:i:s' );
 	// get the response size
@@ -334,6 +482,15 @@ function phenixsync_professionals_update_post( $professional, $post_id ) {
 	$latitude = get_post_meta( $corresponding_location, 'latitude', true );
 	$longitude = get_post_meta( $corresponding_location, 'longitude', true );
 	
+	// update the post title to $professional['salon_name']
+	$post_title = sanitize_text_field( $professional['salon_name'] );
+	$post_title = wp_strip_all_tags( $post_title );
+	$post_title = substr( $post_title, 0, 100 ); // Limit to 100 characters
+	wp_update_post( array(
+		'ID'         => $post_id,
+		'post_title' => $post_title,
+	) );
+	
 	$details_we_want = array(
 		's3_location_id' => (int) $professional['S3_locationID'],
 		's3_tenant_id'   => (int) $professional['S3_tenantID'],
@@ -358,6 +515,7 @@ function phenixsync_professionals_update_post( $professional, $post_id ) {
 		'country'   => sanitize_text_field( $country ),
 		'latitude'   => sanitize_text_field( $latitude ),
 		'longitude'   => sanitize_text_field( $longitude ),
+		'updated' => current_time( 'Y-m-d H:i:s' ),
 	);
 	
 	// let's update the post meta with these details
@@ -366,6 +524,7 @@ function phenixsync_professionals_update_post( $professional, $post_id ) {
 			update_post_meta( $post_id, $key, $value );
 		}
 	}
+	
 }
 
 function phenixsync_professionals_get_post_by_external_id( $external_id ) {
@@ -394,23 +553,3 @@ function phenixsync_professionals_get_post_by_external_id( $external_id ) {
 		return $posts[0]->ID;
 	}
 }
-
-/**
- * Utility function to delete all professionals
- *
- * @return  void.
- */
-function phenix_professionals_delete_all_professionals() {
-	$args = array(
-		'post_type'      => 'professionals',
-		'posts_per_page' => -1,
-		'fields'         => 'ids',
-	);
-	
-	$posts = get_posts( $args );
-	
-	foreach ( $posts as $post_id ) {
-		wp_delete_post( $post_id, true );
-	}
-}
-// add_action( 'wp_footer', 'phenix_professionals_delete_all_professionals' );

@@ -478,25 +478,6 @@ function phenixsync_locations_update_post_taxonomies( $S3_index, $post_id ) {
 	}
 }
 
-function phenix_locations_delete_all_locations() {
-	$args = array(
-		'post_type'      => 'locations',
-		'posts_per_page' => -1,
-	);
-
-	$posts = get_posts( $args );
-	
-	foreach( $posts as $post ) {
-		wp_delete_post( $post->ID, true );
-	}
-}
-// add_action( 'wp_footer', 'phenix_locations_delete_all_locations' );
-
-/**
- * Register a REST API endpoint for syncing a single location.
- */
-add_action( 'rest_api_init', 'phenixsync_register_single_location_sync_endpoint' );
-
 /**
  * Registers the REST API endpoint for syncing a single location.
  *
@@ -517,6 +498,7 @@ function phenixsync_register_single_location_sync_endpoint() {
         ),
     ) );
 }
+add_action( 'rest_api_init', 'phenixsync_register_single_location_sync_endpoint' );
 
 /**
  * Callback function for the single location sync REST API endpoint.

@@ -144,6 +144,9 @@ function phenixsync_sync_individual_location_professionals( $s3_index, $force_re
 
 	$php_array = phenixsync_professionals_get_php_array_from_raw_response( $raw_response );
 	
+	// Remove professionals that no longer exist in the API response for this location
+	phenixsync_remove_deleted_professionals( $php_array, $s3_index );
+	
 	foreach( $php_array as $professional ) {
 		$post_id = phenixsync_professionals_maybe_create_post( $professional );
 		
@@ -553,5 +556,94 @@ function phenixsync_professionals_get_post_by_external_id( $external_id ) {
 	// if there's only one post, return the ID of that post.
 	if ( ! empty( $posts ) ) {
 		return $posts[0]->ID;
+	}
+}
+
+/**
+ * Remove professionals (tenants) that no longer exist in the API response for a specific location.
+ *
+ * @param array $professionals_array Array of professional data from the API.
+ * @param string|int $s3_location_id The S3 location ID to check professionals for.
+ * @return void
+ */
+function phenixsync_remove_deleted_professionals( $professionals_array, $s3_location_id ) {
+	
+	if ( ! is_array( $professionals_array ) || empty( $professionals_array ) ) {
+		return;
+	}
+	
+	// If the professionals array has less than 1 item, we don't need to do anything.
+	// This is to avoid accidentally deleting all professionals if API returns empty or invalid data.
+	if ( count( $professionals_array ) < 1 ) {
+		return;
+	}
+	
+	// Step 1: Get an array of the possible values for s3_tenant_id from the API information
+	$api_tenant_ids = array();
+	foreach ( $professionals_array as $professional ) {
+		if ( isset( $professional['S3_tenantID'] ) ) {
+			$api_tenant_ids[] = (string) $professional['S3_tenantID'];
+		}
+	}
+	
+	if ( empty( $api_tenant_ids ) ) {
+		return;
+	}
+	
+	// Step 2: Query WordPress for professionals with the s3_location_id that we're syncing 
+	// that ALSO have a s3_tenant_id from the array in step 1
+	$args_valid = array(
+		'post_type'      => 'professionals',
+		'posts_per_page' => -1,
+		'post_status'    => 'any',
+		'fields'         => 'ids', // Only get post IDs for performance
+		'meta_query'     => array(
+			'relation' => 'AND',
+			array(
+				'key'   => 's3_location_id',
+				'value' => $s3_location_id,
+			),
+			array(
+				'key'     => 's3_tenant_id',
+				'value'   => $api_tenant_ids,
+				'compare' => 'IN',
+			),
+		),
+	);
+	
+	$valid_professional_ids = get_posts( $args_valid );
+	
+	// Step 3: Run a new WordPress query for professionals with the correct s3_location_id 
+	// that are NOT in the list of post ids generated in step 2
+	$args_to_delete = array(
+		'post_type'      => 'professionals',
+		'posts_per_page' => -1,
+		'post_status'    => 'any',
+		'fields'         => 'ids', // Only get post IDs for performance
+		'meta_query'     => array(
+			array(
+				'key'   => 's3_location_id',
+				'value' => $s3_location_id,
+			),
+		),
+	);
+	
+	// If we have valid professional IDs, exclude them from the deletion query
+	if ( ! empty( $valid_professional_ids ) ) {
+		$args_to_delete['post__not_in'] = $valid_professional_ids;
+	}
+	
+	$professionals_to_delete = get_posts( $args_to_delete );
+	
+	// Step 4: Delete all of the professionals found in step 3
+	foreach ( $professionals_to_delete as $post_id ) {
+		$tenant_id = get_post_meta( $post_id, 's3_tenant_id', true );
+		wp_delete_post( $post_id, true ); // true = force delete, skip trash
+		error_log( "phenixsync_remove_deleted_professionals: Deleted professional post ID {$post_id} with s3_tenant_id {$tenant_id} for s3_location_id {$s3_location_id}" );
+	}
+	
+	if ( ! empty( $professionals_to_delete ) ) {
+		$deleted_count = count( $professionals_to_delete );
+		error_log( "phenixsync_remove_deleted_professionals: Deleted {$deleted_count} professionals for s3_location_id {$s3_location_id}" );
 	}
 }

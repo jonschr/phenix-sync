@@ -163,29 +163,22 @@ function phenixsync_single_location_sync( $S3_index ) {
  * @return string API response or error message.
  */
 function phenixsync_locations_api_request() {
-	$api_url       = 'https://admin.ginasplatform.com/utilities/phenix_portal_locations_sender.aspx';
-	$transient_key = 'phenixsync_locations_raw_response';
-	$cache_duration = HOUR_IN_SECONDS;
+	
+	$api_url       = 'https://utility24.salonsuitesolutions.com/utilities/phenix_portal_locations_sender.aspx?password=LPJph7g3tT263BIfJ1';
 
 	// Set time limit and memory limit
 	set_time_limit( 60 ); // Try setting a higher time limit
 	@ini_set( 'memory_limit', '256M' ); // Try setting a higher memory limit
 
-	// Try to retrieve the cached response
-	$cached_response = get_transient( $transient_key );
-	
-	if ( false !== $cached_response ) {
-		return $cached_response; // Return cached response
-	}
-
 	$args = array(
 		'timeout'  => 60,
 		'blocking' => true,
-		'headers'  => array( 'Content-Type' => 'application/x-www-form-urlencoded' ),
-		'method'   => 'POST',
-		'body'     => array(
-			'password' => 'LPJph7g3tT263BIfJ1',
+		'headers'  => array(
+			'Cache-Control' => 'no-cache',
+			'Pragma' => 'no-cache',
+			'Expires' => '0',
 		),
+		'method'   => 'GET',
 	);
 
 	$response = wp_remote_request( $api_url, $args );
@@ -201,11 +194,11 @@ function phenixsync_locations_api_request() {
 		if ( 200 === (int) $response_code ) {
 			$result = $response_body; // Store raw response
 			
-			// Store the response in a transient, expires after $cache_duration seconds
-			$set_transient_result = set_transient( $transient_key, $result, $cache_duration );
-			if ( ! $set_transient_result ) {
-				error_log( 'Failed to set transient: ' . $transient_key );
-			}
+			// // Store the response in a transient, expires after $cache_duration seconds
+			// $set_transient_result = set_transient( $transient_key, $result, $cache_duration );
+			// if ( ! $set_transient_result ) {
+			// 	error_log( 'Failed to set transient: ' . $transient_key );
+			// }
 			
 		} else {
 			$result = "Request failed with status code: " . esc_html( (string) $response_code );

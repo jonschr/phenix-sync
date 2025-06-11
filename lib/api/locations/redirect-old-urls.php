@@ -1,7 +1,7 @@
 <?php
 // filepath: /Users/jonschroeder/Local Sites/phenix/app/public/wp-content/plugins/phenix-sync/lib/api/locations/redirect-old-urls.php
 
-add_action('template_redirect', 'phenix_redirect_old_location_urls');
+// add_action('template_redirect', 'phenix_redirect_old_location_urls');
 
 /**
  * Redirects old /locations-detail/?id=XXX URLs to the new location permalinks.

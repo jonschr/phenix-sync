@@ -304,21 +304,18 @@ function phenixsync_professionals_loop_through_locations_and_get_s3_location_ids
 function phenixsync_professionals_api_request( $s3_index ) {
 	$api_url       = 'https://admin.ginasplatform.com/utilities/phenix_portal_sender.aspx';
 	$transient_key = 'phenixsync_professionals_raw_response_' . (int) $s3_index;
-	$cache_duration = 12 * HOUR_IN_SECONDS;
+	$cache_duration = 2 * HOUR_IN_SECONDS;
 
 	// Set time limit and memory limit
 	set_time_limit( 60 ); // Try setting a higher time limit
 	@ini_set( 'memory_limit', '256M' ); // Try setting a higher memory limit
 
-	// Try to retrieve the cached response
-	$cached_response = get_transient( $transient_key );
+	// // Try to retrieve the cached response
+	// $cached_response = get_transient( $transient_key );
 	
-	// at the moment, the API doesn't work, so instead, we're going to get test-data.json from the same dir as this file, and return the content of that.
-	// $cached_response = file_get_contents( __DIR__ . '/test-data.json' );
-
-	if ( false !== $cached_response ) {
-		return $cached_response; // Return cached response
-	}
+	// if ( false !== $cached_response ) {
+	// 	return $cached_response; // Return cached response
+	// }
 
 	$args = array(
 		'timeout'  => 60,

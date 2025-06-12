@@ -302,7 +302,7 @@ function phenixsync_professionals_loop_through_locations_and_get_s3_location_ids
  * @return string API response or error message.
  */
 function phenixsync_professionals_api_request( $s3_index ) {
-	$api_url       = 'https://admin.ginasplatform.com/utilities/phenix_portal_sender.aspx';
+	$api_url       = 'https://utility24.salonsuitesolutions.com/utilities/phenix_portal_locations_sender.aspx';
 	$transient_key = 'phenixsync_professionals_raw_response_' . (int) $s3_index;
 	$cache_duration = 2 * HOUR_IN_SECONDS;
 

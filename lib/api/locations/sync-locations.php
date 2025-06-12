@@ -18,7 +18,7 @@ add_action( 'wp', 'phenixsync_schedule_locations_sync' );
  * @return void
  */
 function phenixsync_locations_sync_init() {
-	$raw_response = phenixsync_locations_api_request();
+	$raw_response = phenixsync_locations_api_request( null );
 	$locations_array = phenixsync_locations_json_to_php_array( $raw_response );
 	
 	// Check for locations on our site that no longer exist in the API response and cull them.
@@ -83,7 +83,7 @@ function phenixsync_process_batch( $offset ) {
 		return;
 	}
 	
-	$batch_size = 50; // Process 50 locations per batch
+	$batch_size = 5; // Process 5 locations per batch
 	$processed = 0;
 	$total = count( $locations_array );
 	
@@ -94,23 +94,21 @@ function phenixsync_process_batch( $offset ) {
 			error_log("Phenix Sync: Invalid location data or missing S3_index at offset {$i} in batch.");
 			continue; 
 		}
+		
 		$S3_index = $location_item['S3_index'];
 		
-		// Call the refactored functions with S3_index
-		$post_id = phenixsync_locations_maybe_create_post( $S3_index );
+		$sync_result = phenixsync_single_location_sync( $S3_index );
 		
-		if ( $post_id ) {
-			phenixsync_locations_update_post( $S3_index, $post_id );
-			phenixsync_locations_update_post_taxonomies( $S3_index, $post_id );
-		} else {
+		if ( !$sync_result ) {
 			error_log("Phenix Sync: Failed to get or create post_id for S3_index {$S3_index} in batch processing.");
 		}
+		
 		$processed++;
 	}
 	
 	// Schedule the next batch if there are more locations to process
 	if ( $offset + $processed < $total ) {
-		wp_schedule_single_event( time() + 2, 'phenixsync_do_process_batch', array( $offset + $processed ) );
+		wp_schedule_single_event( time() + 10, 'phenixsync_do_process_batch', array( $offset + $processed ) );
 	} else {
 		// Optional: Clear transient after all batches are processed if desired
 		// delete_transient( 'phenixsync_locations_data' );
@@ -129,13 +127,13 @@ add_action( 'phenixsync_do_process_batch', 'phenixsync_process_batch' );
 function phenixsync_single_location_sync( $S3_index ) {
 	
 	// clear the transient first for phenixsync_locations_data
-	delete_transient( 'phenixsync_locations_data' );
+	delete_transient( 'phenixsync_locations_data_' . $S3_index );
 	
-	$raw_response = phenixsync_locations_api_request();
+	$raw_response = phenixsync_locations_api_request( $S3_index);
 	$locations_array = phenixsync_locations_json_to_php_array( $raw_response );
 		
 	// Store the locations array in a transient
-	set_transient( 'phenixsync_locations_data', $locations_array, HOUR_IN_SECONDS );
+	set_transient( 'phenixsync_locations_data_' . $S3_index, $locations_array, HOUR_IN_SECONDS );
 	
 	if ( empty( $S3_index ) ) {
 		error_log( 'Phenix Sync: S3_index cannot be empty for phenixsync_single_location_sync.' );
@@ -162,9 +160,18 @@ function phenixsync_single_location_sync( $S3_index ) {
  *
  * @return string API response or error message.
  */
-function phenixsync_locations_api_request() {
+function phenixsync_locations_api_request( $s3_index = null ) {
 	
-	$api_url       = 'https://utility24.salonsuitesolutions.com/utilities/phenix_portal_locations_sender.aspx?password=LPJph7g3tT263BIfJ1';
+	$password = 'LPJph7g3tT263BIfJ1';
+	$base_url = 'https://utility24.salonsuitesolutions.com/utilities/phenix_portal_locations_sender.aspx';
+	
+	// build the API url with the base URL and password.
+	$api_url = add_query_arg( 'password', $password, $base_url );
+	
+	// build the API URL (with the s3_index if provided, or without if not)
+	if ( ! empty( $s3_index ) ) {
+		$api_url = add_query_arg( 'location_index', $s3_index, $api_url );
+	}
 
 	// Set time limit and memory limit
 	set_time_limit( 60 ); // Try setting a higher time limit
@@ -193,17 +200,9 @@ function phenixsync_locations_api_request() {
 
 		if ( 200 === (int) $response_code ) {
 			$result = $response_body; // Store raw response
-			
-			// // Store the response in a transient, expires after $cache_duration seconds
-			// $set_transient_result = set_transient( $transient_key, $result, $cache_duration );
-			// if ( ! $set_transient_result ) {
-			// 	error_log( 'Failed to set transient: ' . $transient_key );
-			// }
-			
 		} else {
 			$result = "Request failed with status code: " . esc_html( (string) $response_code );
 			error_log( 'phenixsync_locations_api_request HTTP Error: ' . $response_code . ' - ' . $result );
-
 		}
 	}
 
@@ -248,21 +247,16 @@ function phenixsync_locations_json_to_php_array($raw_response) {
  * @return array|null The location data array if found, otherwise null.
  */
 function phenixsync_get_location_data_from_transient( $S3_index ) {
-	$locations_array = get_transient( 'phenixsync_locations_data' );
+	
+	$location_array = get_transient( 'phenixsync_locations_data_' . $S3_index );
 
-	if ( ! $locations_array || ! is_array( $locations_array ) ) {
+	if ( ! $location_array || ! is_array( $location_array ) ) {
 		error_log( 'Phenix Sync: Locations data transient is not set or not an array when trying to get S3_index: ' . $S3_index );
 		return null;
 	}
 
-	foreach ( $locations_array as $location_data ) {
-		if ( isset( $location_data['S3_index'] ) && $location_data['S3_index'] == $S3_index ) {
-			return $location_data;
-		}
-	}
-	
-	error_log( "Phenix Sync: Location with S3_index {$S3_index} not found in transient." );
-	return null;
+	$location = $location_array[0] ?? null; // Get the first location if it exists
+	return $location;
 }
 
 /**
@@ -340,6 +334,7 @@ function phenixsync_locations_get_post_by_external_id( $external_id ) {
 function phenixsync_locations_update_post( $S3_index, $post_id ) {
 
 	$location = phenixsync_get_location_data_from_transient( $S3_index );
+		
 	if ( ! $location ) {
 		error_log( "Phenix Sync: Could not retrieve location data for S3_index {$S3_index} in phenixsync_locations_update_post. Post ID: {$post_id}" );
 		return;

@@ -191,6 +191,7 @@ add_action( 'rest_api_init', 'phenixsync_register_sync_professionals_by_location
  * @return WP_REST_Response|WP_Error The response object or WP_Error on failure.
  */
 function phenixsync_rest_sync_professionals_by_location_callback( WP_REST_Request $request ) {
+	
 	$s3_location_id = $request->get_param( 's3_location_id' );
 
 	// Rate Limiting: Check if this s3_location_id has been processed recently
@@ -204,10 +205,11 @@ function phenixsync_rest_sync_professionals_by_location_callback( WP_REST_Reques
 	}
 
 	// Set the rate limit transient - e.g., 10 seconds
-	set_transient( $rate_limit_transient_key, true, 10 );
+	set_transient( $rate_limit_transient_key, true, 1 );
 
 	// Directly call the function to sync professionals for the given s3_location_id
 	// The 'true' argument forces a refresh of the API data for that location.
+	
 	$result = phenixsync_sync_individual_location_professionals( $s3_location_id, true );
 
 	if ( is_wp_error( $result ) ) {
@@ -302,7 +304,7 @@ function phenixsync_professionals_loop_through_locations_and_get_s3_location_ids
  * @return string API response or error message.
  */
 function phenixsync_professionals_api_request( $s3_index ) {
-	$api_url       = 'https://utility24.salonsuitesolutions.com/utilities/phenix_portal_locations_sender.aspx';
+	$api_url       = 'https://utility24.salonsuitesolutions.com/utilities/phenix_portal_sender.aspx';
 	$transient_key = 'phenixsync_professionals_raw_response_' . (int) $s3_index;
 	$cache_duration = 2 * HOUR_IN_SECONDS;
 

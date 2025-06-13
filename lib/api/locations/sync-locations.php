@@ -160,13 +160,17 @@ function phenixsync_single_location_sync( $S3_index ) {
  *
  * @return string API response or error message.
  */
-function phenixsync_locations_api_request( $s3_index = null ) {
+function phenixsync_locations_api_request( $s3_index ) {
 	
 	$password = 'LPJph7g3tT263BIfJ1';
 	$base_url = 'https://utility24.salonsuitesolutions.com/utilities/phenix_portal_locations_sender.aspx';
 	
 	// build the API url with the base URL and password.
 	$api_url = add_query_arg( 'password', $password, $base_url );
+	
+	// add a query arg with the date and time of the request, with a parameter for unique_string
+	$unique_string = date('YmdHis');
+	$api_url = add_query_arg( 'unique_string', $unique_string, $api_url );
 	
 	// build the API URL (with the s3_index if provided, or without if not)
 	if ( ! empty( $s3_index ) ) {

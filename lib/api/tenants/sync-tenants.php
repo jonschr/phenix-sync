@@ -307,6 +307,10 @@ function phenixsync_professionals_api_request( $s3_index ) {
 	$api_url       = 'https://utility24.salonsuitesolutions.com/utilities/phenix_portal_sender.aspx';
 	$transient_key = 'phenixsync_professionals_raw_response_' . (int) $s3_index;
 	$cache_duration = 2 * HOUR_IN_SECONDS;
+	
+	// add a query arg with the date and time of the request, with a parameter for unique_string
+	$unique_string = date('YmdHis');
+	$api_url = add_query_arg( 'unique_string', $unique_string, $api_url );
 
 	// Set time limit and memory limit
 	set_time_limit( 60 ); // Try setting a higher time limit

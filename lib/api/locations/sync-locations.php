@@ -192,7 +192,41 @@ function phenixsync_locations_api_request( $s3_index ) {
 		'method'   => 'GET',
 	);
 
+	$start_time = microtime(true);
 	$response = wp_remote_request( $api_url, $args );
+	$end_time = microtime(true);
+	$duration = $end_time - $start_time;
+
+    $timed_out = false;
+    if ( is_wp_error( $response ) ) {
+        $error_message = $response->get_error_message();
+        if ( strpos( strtolower( $error_message ), 'timed out' ) !== false ) {
+            $timed_out = true;
+        }
+    }
+
+    // If the request took more than 10 seconds, or if it timed out, send an email alert
+    if ( $duration > 10 || $timed_out ) {
+        $recipients = [
+            'jon@brindledigital.com',
+            'tim@salonsuitesolutions.com'
+        ];
+        $subject = sprintf(
+            'Phenix Sync: [locations] API Request Took Too Long (S3_index: %s)',
+            !empty($s3_index) ? $s3_index : 'ALL'
+        );
+        $message = sprintf(
+            "The API request to %s took %.2f seconds to complete.",
+            $api_url,
+            $duration
+        );
+        if ( $timed_out ) {
+            $message .= "\n\nNOTE: The request TIMED OUT.";
+        }
+        foreach ( $recipients as $recipient ) {
+            wp_mail( $recipient, $subject, $message );
+        }
+    }
 
 	if ( is_wp_error( $response ) ) {
 		$error_message = $response->get_error_message();

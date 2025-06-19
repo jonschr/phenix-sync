@@ -38,7 +38,7 @@ function phenix_send_form_to_api_2( $entry, $form ) { // phpcs:ignore
 		'last_name'          => $last_name,
 		'email'              => $email,
 		'phone'              => $phone,
-		'LeadNotes'          => $message,
+		'notes'          => $message,
 	);
 
 	// Set up the request.

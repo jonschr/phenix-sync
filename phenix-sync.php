@@ -3,7 +3,7 @@
 	Plugin Name:    Phenix Sync
 	Plugin URI:     https://elod.in
 	Description:    Just another WordPress plugin
-	Version:        0.4.7
+	Version:        0.4.8
 	Author:         Jon Schroeder
 	Author URI:     https://elod.in
 	Text Domain:    phenixsync-textdomain
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 // Plugin base values.
 define( 'PHENIX_SYNC', __DIR__ );
-define( 'PHENIX_SYNC_VERSION', '0.4.7' );
+define( 'PHENIX_SYNC_VERSION', '0.4.8' );
 
 // Set up plugin directories.
 define( 'PHENIX_SYNC_DIR', plugin_dir_path( __FILE__ ) );

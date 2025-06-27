@@ -528,9 +528,7 @@ function phenixsync_professionals_update_post( $professional, $post_id ) {
 	
 	// let's update the post meta with these details
 	foreach( $details_we_want as $key => $value ) {
-		if ( ! empty( $value ) ) {
-			update_post_meta( $post_id, $key, $value );
-		}
+		update_post_meta( $post_id, $key, $value );
 	}
 	
 }

@@ -325,16 +325,7 @@ function phenix_location_professional_each() {
 			if ( $address ) {
 				printf( '<p class="address">%s</p>', $address );
 			}
-			
-			$distance = facetwp_get_distance();
-
-			// Round distance to 2 decimals and append ' mi' or ' km'.
-			if ( false !== $distance ) {
-				$distance = round( $distance, 2 );
-				
-				printf( '<p class="distance"><span class="dashicons dashicons-location"></span> %s miles away</p>', $distance );
-			}
-			
+						
 		echo '</div>'; // end location info
 		
 		echo '<div class="professional-info">';
@@ -342,7 +333,6 @@ function phenix_location_professional_each() {
 			if ( $title ) {
 				printf( '<p class="title">%s</p>', $title );
 			}
-			
 			
 			if ( $name && !$suites ) {
 				printf( '<p class="name">%s</p>', $name );	

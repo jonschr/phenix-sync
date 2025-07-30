@@ -24,6 +24,14 @@ function phenixsync_locations_sync_init() {
 	// from the locations array, we need to get all of the locations S3_index values, and put those into a new array.
 	$locations_s3_indices = array_column( $locations_array, 'S3_index' );
 	
+	// allow for filtering this list to only include s3_index values that also appear in the setting for the location to sync, if applicable.
+	$locations_s3_indices = apply_filters( 'phenixsync_locations_s3_indices', $locations_s3_indices );
+		
+	// Filter the locations array to only include locations that are in the filtered S3_indices array
+	$filtered_locations_array = array_filter( $locations_array, function( $location ) use ( $locations_s3_indices ) {
+		return isset( $location['S3_index'] ) && in_array( $location['S3_index'], $locations_s3_indices );
+	});
+	
 	// Ensure all S3_index values are strings for consistent comparison
 	$locations_s3_indices = array_map( 'strval', $locations_s3_indices );
 	
@@ -35,35 +43,30 @@ function phenixsync_locations_sync_init() {
 	// Check for tenants on our site that no longer have corresponding locations and cull them.
 	phenixsync_remove_orphaned_tenants( $locations_s3_indices );
 	
-	// Store the locations array in a transient
-	set_transient( 'phenixsync_locations_data', $locations_array, HOUR_IN_SECONDS );
+	// Store the filtered locations array in a transient
+	set_transient( 'phenixsync_locations_data', $filtered_locations_array, HOUR_IN_SECONDS );
 	
 	// Schedule the first batch
 	wp_schedule_single_event( time(), 'phenixsync_do_process_batch', array( 0 ) );
 }
 add_action( 'phenixsync_locations_cron_hook', 'phenixsync_locations_sync_init' );
+// add_action( 'wp_footer', 'phenixsync_locations_sync_init' ); // for testing only.
 
 /** 
  * Remove locations that no longer exist in the API response.
  */
 function phenixsync_remove_deleted_locations( $locations_s3_indices ) {
-	
+
+	// Validate that we have a proper array of location indices
 	if ( ! is_array( $locations_s3_indices ) || empty( $locations_s3_indices ) ) {
 		return;
 	}
-	
-	// if the locations array has less than 50 items, we don't need to do anything.
-	// this is because we only want to remove locations if we're sure this is a real array with location data.
-	if ( count( $locations_s3_indices ) < 50 ) {
-		return;
-	}
-	
+		
 	// Get all existing locations first
 	$args = array(
 		'post_type'      => 'locations',
 		'posts_per_page' => -1,
 		'post_status'    => 'any',
-		'meta_key'       => 's3_index',
 	);
 	
 	$existing_posts = get_posts( $args );
@@ -73,6 +76,12 @@ function phenixsync_remove_deleted_locations( $locations_s3_indices ) {
 	foreach ( $existing_posts as $post ) {
 		$s3_index = get_post_meta( $post->ID, 's3_index', true );
 		
+		// Delete posts that don't have an s3_index or whose s3_index is not in the API response
+		if ( empty( $s3_index ) ) {
+			$posts_to_delete[] = $post;
+			continue;
+		}
+		
 		$s3_index = strval( $s3_index ); // Ensure consistent string comparison
 		
 		if ( ! in_array( $s3_index, $locations_s3_indices, true ) ) { // Strict comparison
@@ -80,11 +89,12 @@ function phenixsync_remove_deleted_locations( $locations_s3_indices ) {
 		}
 	}
 	
-	error_log( "Phenix Sync: Found " . count( $posts_to_delete ) . " locations to delete (s3_index not in current API response)" );
+	error_log( "Phenix Sync: Found " . count( $posts_to_delete ) . " locations to delete (missing s3_index or s3_index not in current API response)" );
 	
 	foreach ( $posts_to_delete as $post ) {
 		$s3_index = get_post_meta( $post->ID, 's3_index', true );
-		error_log( "Phenix Sync: Deleting location - ID: {$post->ID}, Title: '{$post->post_title}', S3_index: '{$s3_index}' (type: " . gettype( $s3_index ) . ")" );
+		$s3_index_display = empty( $s3_index ) ? 'MISSING' : $s3_index;
+		error_log( "Phenix Sync: Deleting location - ID: {$post->ID}, Title: '{$post->post_title}', S3_index: '{$s3_index_display}' (type: " . gettype( $s3_index ) . ")" );
 		wp_delete_post( $post->ID, true );
 	}
 }
@@ -98,71 +108,139 @@ function phenixsync_remove_orphaned_tenants( $locations_s3_indices ) {
 		return;
 	}
 	
-	// if the locations array has less than 50 items, we don't need to do anything.
-	// this is because we only want to remove tenants if we're sure this is a real array with location data.
-	if ( count( $locations_s3_indices ) < 50 ) {
+	// Convert to hash map for O(1) lookup instead of O(n) in_array
+	$valid_location_ids = array_flip( array_map( 'strval', $locations_s3_indices ) );
+	
+	// Use WordPress scheduled events to process this asynchronously
+	// This prevents crashes by spreading the work across multiple requests
+	
+	// Store the valid location IDs in a transient for the background process
+	set_transient( 'phenixsync_valid_location_ids', $valid_location_ids, HOUR_IN_SECONDS );
+	
+	// Schedule the background cleanup to start immediately
+	if ( ! wp_next_scheduled( 'phenixsync_cleanup_orphaned_tenants' ) ) {
+		wp_schedule_single_event( time(), 'phenixsync_cleanup_orphaned_tenants', array( 0 ) );
+	}
+	
+	error_log( "Phenix Sync: Orphaned tenant cleanup scheduled as background process" );
+}
+
+/**
+ * Background process to clean up orphaned tenants in very small batches
+ */
+function phenixsync_cleanup_orphaned_tenants_background( $offset = 0 ) {
+	
+	$valid_location_ids = get_transient( 'phenixsync_valid_location_ids' );
+	if ( ! $valid_location_ids || ! is_array( $valid_location_ids ) ) {
+		error_log( "Phenix Sync: Valid location IDs transient not found, stopping cleanup" );
 		return;
 	}
 	
-	// Get all existing tenants first - use pagination for large datasets
-	$existing_tenants = array();
-	$page = 1;
-	$posts_per_page = 1000; // Process in chunks of 1000
+	$batch_size = 50; // Very small batch size
+	$max_deletions_per_batch = 5; // Only delete 5 posts maximum per batch
+	$max_execution_time = 15; // Even shorter execution time
+	$start_time = time();
 	
-	do {
-		$args = array(
-			'post_type'      => 'professionals',
-			'posts_per_page' => $posts_per_page,
-			'paged'          => $page,
-			'post_status'    => 'any',
-			'fields'         => 'ids', // Only get IDs for memory efficiency
-		);
+	// Set conservative limits
+	@ini_set( 'memory_limit', '256M' );
+	@set_time_limit( 30 );
+	
+	global $wpdb;
+	
+	// Get a small batch of professionals
+	$sql = $wpdb->prepare( "
+		SELECT p.ID, pm.meta_value as s3_location_id, p.post_title
+		FROM {$wpdb->posts} p
+		LEFT JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = 's3_location_id'
+		WHERE p.post_type = 'professionals'
+		AND p.post_status IN ('publish', 'draft', 'private', 'trash', 'auto-draft', 'inherit')
+		ORDER BY p.ID
+		LIMIT %d OFFSET %d
+	", $batch_size, $offset );
+	
+	$results = $wpdb->get_results( $sql );
+	
+	if ( empty( $results ) ) {
+		// We're done, clean up
+		delete_transient( 'phenixsync_valid_location_ids' );
+		error_log( "Phenix Sync: Orphaned tenant cleanup completed" );
+		return;
+	}
+	
+	$deletions_this_batch = 0;
+	$processed_this_batch = 0;
+	
+	foreach ( $results as $row ) {
+		// Stop if we've been running too long
+		if ( ( time() - $start_time ) > $max_execution_time ) {
+			break;
+		}
 		
-		$batch_posts = get_posts( $args );
+		// Stop if we've deleted enough for this batch
+		if ( $deletions_this_batch >= $max_deletions_per_batch ) {
+			break;
+		}
 		
-		if ( ! empty( $batch_posts ) ) {
-			// Convert IDs back to post objects for consistency with existing code
-			foreach ( $batch_posts as $post_id ) {
-				$post = get_post( $post_id );
-				if ( $post ) {
-					$existing_tenants[] = $post;
-				}
+		$post_id = $row->ID;
+		$s3_location_id = $row->s3_location_id;
+		$post_title = $row->post_title;
+		$processed_this_batch++;
+		
+		$should_delete = false;
+		$delete_reason = '';
+		
+		// Delete if no s3_location_id meta
+		if ( empty( $s3_location_id ) ) {
+			$should_delete = true;
+			$delete_reason = 'missing s3_location_id';
+		} else {
+			// Delete if s3_location_id not in valid locations
+			$s3_location_id = strval( $s3_location_id );
+			if ( ! isset( $valid_location_ids[ $s3_location_id ] ) ) {
+				$should_delete = true;
+				$delete_reason = 's3_location_id not in current API response';
 			}
 		}
 		
-		$page++;
-		error_log( "Phenix Sync: Processed page {$page} of professionals, found " . count( $batch_posts ) . " posts in this batch" );
-		
-	} while ( count( $batch_posts ) === $posts_per_page );
-	
-	$tenants_to_delete = array();
-	
-	error_log( "Phenix Sync: Found " . count( $existing_tenants ) . " total professionals to check for orphaned records" );
-	
-	// Filter to find tenants that should be deleted
-	foreach ( $existing_tenants as $tenant ) {
-		$s3_location_id = get_post_meta( $tenant->ID, 's3_location_id', true );
-		
-		// Skip professionals that don't have s3_location_id meta
-		if ( empty( $s3_location_id ) ) {
-			continue;
-		}
-		
-		$s3_location_id = strval( $s3_location_id ); // Ensure consistent string comparison
-		
-		if ( ! in_array( $s3_location_id, $locations_s3_indices, true ) ) { // Strict comparison
-			$tenants_to_delete[] = $tenant;
+		if ( $should_delete ) {
+			try {
+				error_log( "Phenix Sync: Deleting tenant - ID: {$post_id}, Title: '{$post_title}', S3_location_id: '{$s3_location_id}' ({$delete_reason})" );
+				
+				$delete_result = wp_delete_post( $post_id, true );
+				
+				if ( $delete_result ) {
+					$deletions_this_batch++;
+				} else {
+					error_log( "Phenix Sync: Failed to delete post ID {$post_id}" );
+				}
+				
+				// Small delay between deletions
+				usleep( 100000 ); // 0.1 second
+				
+			} catch ( Exception $e ) {
+				error_log( "Phenix Sync: Exception while deleting post ID {$post_id}: " . $e->getMessage() );
+			}
 		}
 	}
 	
-	error_log( "Phenix Sync: Found " . count( $tenants_to_delete ) . " tenants to delete (s3_location_id not in current API response)" );
+	// Calculate next offset
+	$next_offset = $offset + $processed_this_batch;
 	
-	foreach ( $tenants_to_delete as $tenant ) {
-		$s3_location_id = get_post_meta( $tenant->ID, 's3_location_id', true );
-		error_log( "Phenix Sync: Deleting tenant - ID: {$tenant->ID}, Title: '{$tenant->post_title}', S3_location_id: '{$s3_location_id}' (type: " . gettype( $s3_location_id ) . ")" );
-		wp_delete_post( $tenant->ID, true );
+	error_log( "Phenix Sync: Background cleanup batch complete. Processed: {$processed_this_batch}, Deleted: {$deletions_this_batch}, Next offset: {$next_offset}" );
+	
+	// Schedule the next batch with a delay
+	if ( count( $results ) === $batch_size || $processed_this_batch > 0 ) {
+		wp_schedule_single_event( time() + 5, 'phenixsync_cleanup_orphaned_tenants', array( $next_offset ) );
+	} else {
+		// We're done
+		delete_transient( 'phenixsync_valid_location_ids' );
+		error_log( "Phenix Sync: Orphaned tenant cleanup fully completed" );
 	}
+	
+	// Clear cache
+	wp_cache_flush();
 }
+add_action( 'phenixsync_cleanup_orphaned_tenants', 'phenixsync_cleanup_orphaned_tenants_background' );
 
 /**
  * Process a batch of locations.
@@ -184,13 +262,28 @@ function phenixsync_process_batch( $offset ) {
 	
 	$batch_size = 5; // Process 5 locations per batch
 	$processed = 0;
+	$skipped = 0;
 	$total = count( $locations_array );
 	
-	for ( $i = $offset; $i < $total && $processed < $batch_size; $i++ ) {
-		$location_item = $locations_array[$i]; 
+	// Convert to indexed array to handle non-sequential keys
+	$locations_values = array_values( $locations_array );
+	
+	// Calculate the end position for this batch
+	$batch_end = min( $offset + $batch_size, $total );
+	
+	for ( $i = $offset; $i < $batch_end; $i++ ) {
+		// Check if the array index exists before accessing it
+		if ( ! isset( $locations_values[$i] ) ) {
+			error_log("Phenix Sync: Array index {$i} does not exist in locations array.");
+			$skipped++;
+			continue;
+		}
+		
+		$location_item = $locations_values[$i]; 
 
 		if ( ! is_array( $location_item ) || ! isset( $location_item['S3_index'] ) ) {
 			error_log("Phenix Sync: Invalid location data or missing S3_index at offset {$i} in batch.");
+			$skipped++;
 			continue; 
 		}
 		
@@ -205,9 +298,13 @@ function phenixsync_process_batch( $offset ) {
 		$processed++;
 	}
 	
+	$next_offset = $offset + $batch_size; // Use consistent batch size for offset calculation
+	
+	error_log("Phenix Sync: Batch complete. Processed: {$processed}, Skipped: {$skipped}, Next offset: {$next_offset}, Total: {$total}");
+	
 	// Schedule the next batch if there are more locations to process
-	if ( $offset + $processed < $total ) {
-		wp_schedule_single_event( time() + 10, 'phenixsync_do_process_batch', array( $offset + $processed ) );
+	if ( $next_offset < $total ) {
+		wp_schedule_single_event( time() + 10, 'phenixsync_do_process_batch', array( $next_offset ) );
 	} else {
 		// Optional: Clear transient after all batches are processed if desired
 		// delete_transient( 'phenixsync_locations_data' );
@@ -261,7 +358,7 @@ function phenixsync_single_location_sync( $S3_index ) {
  */
 function phenixsync_locations_api_request( $s3_index ) {
 	
-	$password = 'LPJph7g3tT263BIfJ1';
+	$password = phenix_sync_get_api_password();
 	$base_url = 'https://utility24.salonsuitesolutions.com/utilities/phenix_portal_locations_sender.aspx';
 	
 	// build the API url with the base URL and password.

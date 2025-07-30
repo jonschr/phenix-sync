@@ -58,69 +58,6 @@ add_action( 'phenixsync_professionals_cron_hook', 'phenixsync_professionals_mana
 add_action( 'phenixsync_sync_individual_location_professionals_event', 'phenixsync_sync_individual_location_professionals' );
 
 /**
- * Get the s3_location_id from a professional's s3_tenant_id.
- *
- * @param string $s3_tenant_id The S3 tenant ID.
- * @return string|false The s3_location_id if found, false otherwise.
- */
-/*
-function phenixsync_get_s3_location_id_from_s3_tenant_id( $s3_tenant_id ) {
-	$args = array(
-		'post_type'      => 'professionals',
-		'posts_per_page' => 1,
-		'meta_key'       => 's3_tenant_id',
-		'meta_value'     => $s3_tenant_id,
-		'fields'         => 'ids', // Only get post IDs
-	);
-	$professional_posts = get_posts( $args );
-
-	if ( ! empty( $professional_posts ) ) {
-		$professional_post_id = $professional_posts[0];
-		$s3_location_id = get_post_meta( $professional_post_id, 's3_location_id', true );
-		if ( $s3_location_id ) {
-			return $s3_location_id;
-		}
-	}
-	return false;
-}
-*/
-
-/**
- * Sync professionals for a specific location using s3_tenant_id.
- *
- * This function will find the s3_location_id associated with the s3_tenant_id
- * and then trigger a sync for all professionals at that location, ensuring fresh data.
- *
- * @param string $s3_tenant_id The S3 tenant ID of a professional.
- * @return bool|WP_Error True on success, WP_Error on failure.
- */
-/*
-function phenixsync_sync_professionals_by_tenant_id( $s3_tenant_id ) {
-	$s3_location_id = phenixsync_get_s3_location_id_from_s3_tenant_id( $s3_tenant_id );
-
-	if ( ! $s3_location_id ) {
-		return new WP_Error( 's3_location_id_not_found', 'Could not find s3_location_id for the given s3_tenant_id.', array( 'status' => 404 ) );
-	}
-
-	// Call phenixsync_sync_individual_location_professionals with force_refresh set to true
-	$result = phenixsync_sync_individual_location_professionals( $s3_location_id, true );
-
-	if ( is_wp_error( $result ) ) {
-		return $result;
-	}
-	
-	return true;
-}
-*/
-
-// run phenixsync_sync_professionals_by_tenant_id on wp_footer for 184917
-/*
-add_action( 'wp_footer', function() {
-	$result = phenixsync_sync_professionals_by_tenant_id( '184917' );
-}, 100 );
-*/
-
-/**
  * Sync an individual location's professionals.
  *
  * @param string $s3_index The S3 index (s3_location_id) of the location.
@@ -322,6 +259,8 @@ function phenixsync_professionals_api_request( $s3_index ) {
 	// if ( false !== $cached_response ) {
 	// 	return $cached_response; // Return cached response
 	// }
+	
+	$password = phenix_sync_get_api_password();
 
 	$args = array(
 		'timeout'  => 60,
@@ -329,7 +268,7 @@ function phenixsync_professionals_api_request( $s3_index ) {
 		'headers'  => array( 'Content-Type' => 'application/x-www-form-urlencoded' ),
 		'method'   => 'POST',
 		'body'     => array(
-			'password' => 'LPJph7g3tT263BIfJ1',
+			'password' => $password,
 			'location_index' => $s3_index,
 		),
 	);

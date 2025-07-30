@@ -49,3 +49,15 @@ function phenixsync_require_files_recursive( $directory ) {
 
 // Require_once all files in /lib and its subdirectories.
 phenixsync_require_files_recursive( PHENIX_SYNC_DIR . 'lib' );
+
+
+// Load Plugin Update Checker.
+require PHENIX_SYNC_DIR . 'vendor/plugin-update-checker/plugin-update-checker.php';
+$update_checker = Puc_v4_Factory::buildUpdateChecker(
+	'https://github.com/jonschr/phenix-sync',
+	__FILE__,
+	'phenix-sync'
+);
+
+// Optional: Set the branch that contains the stable release.
+$update_checker->setBranch( 'main' );

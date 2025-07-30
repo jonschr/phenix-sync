@@ -355,7 +355,7 @@ function phenix_location_professional_each() {
 					if ( $website ) {
 						
 						// get a vesrion of the website without https:// or http:// or www
-						$website_display = phenix_clean_url( $website );
+						$website_display = trim( preg_replace( '#^(https?:\/\/)?(www\.)?([^\/?]+)[\/]*$#', '$3', $website ) );
 						
 						printf( '<li class="website"><a href="%s" target="_blank">%s</a></li>', $website, $website_display );
 					}

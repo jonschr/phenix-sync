@@ -393,36 +393,57 @@ function phenixsync_locations_api_request( $s3_index ) {
 	$end_time = microtime(true);
 	$duration = $end_time - $start_time;
 
-    $timed_out = false;
-    if ( is_wp_error( $response ) ) {
-        $error_message = $response->get_error_message();
-        if ( strpos( strtolower( $error_message ), 'timed out' ) !== false ) {
-            $timed_out = true;
-        }
-    }
+	$timed_out = false;
+	if ( is_wp_error( $response ) ) {
+		$error_message = $response->get_error_message();
+		if ( strpos( strtolower( $error_message ), 'timed out' ) !== false ) {
+			$timed_out = true;
+		}
+	}
 
-    // If the request took more than 10 seconds, or if it timed out, send an email alert
-    if ( $duration > 10 || $timed_out ) {
-        $recipients = [
-            'jon@brindledigital.com',
-            'tim@salonsuitesolutions.com'
-        ];
-        $subject = sprintf(
-            'Phenix Sync: [locations] API Request Took Too Long (S3_index: %s)',
-            !empty($s3_index) ? $s3_index : 'ALL'
-        );
-        $message = sprintf(
-            "The API request to %s took %.2f seconds to complete.",
-            $api_url,
-            $duration
-        );
-        if ( $timed_out ) {
-            $message .= "\n\nNOTE: The request TIMED OUT.";
-        }
-        foreach ( $recipients as $recipient ) {
-            wp_mail( $recipient, $subject, $message );
-        }
-    }
+	// If the request took more than 10 seconds, or if it timed out, send an email alert
+	if ( $duration > 10 || $timed_out ) {
+		$recipients = [
+			'jon@brindledigital.com',
+			'tim@salonsuitesolutions.com'
+		];
+		$subject = sprintf(
+			'Phenix Sync: [locations] API Request Took Too Long (S3_index: %s)',
+			!empty($s3_index) ? $s3_index : 'ALL'
+		);
+		$message = sprintf(
+			"The API request to %s took %.2f seconds to complete.",
+			$api_url,
+			$duration
+		);
+		if ( $timed_out ) {
+			$message .= "\n\nNOTE: The request TIMED OUT.";
+			// When it times out, include a direct resync URL with the location_index if available
+			$resync_location_index = null;
+
+			// Prefer the provided $s3_index; otherwise attempt to parse from the API URL
+			if ( ! empty( $s3_index ) ) {
+				$resync_location_index = $s3_index;
+			} else {
+				$query = parse_url( $api_url, PHP_URL_QUERY );
+				if ( $query ) {
+					parse_str( $query, $query_params );
+					if ( ! empty( $query_params['location_index'] ) ) {
+						$resync_location_index = $query_params['location_index'];
+					}
+				}
+			}
+
+			if ( ! empty( $resync_location_index ) ) {
+				$resync_base = 'https://utility24.salonsuitesolutions.com/utilities/phenix_website_resync.aspx';
+				$resync_url  = add_query_arg( 'location_index', $resync_location_index, $resync_base );
+				$message    .= "\n\nResync URL: {$resync_url}";
+			}
+		}
+		foreach ( $recipients as $recipient ) {
+			wp_mail( $recipient, $subject, $message );
+		}
+	}
 
 	if ( is_wp_error( $response ) ) {
 		$error_message = $response->get_error_message();
@@ -706,19 +727,19 @@ function phenixsync_locations_update_post_taxonomies( $S3_index, $post_id ) {
  * @return void
  */
 function phenixsync_register_single_location_sync_endpoint() {
-    register_rest_route( 'phenix-sync/v1', '/location/(?P<S3_index>[a-zA-Z0-9_-]+)', array(
-        'methods'             => WP_REST_Server::READABLE, // GET request
-        'callback'            => 'phenixsync_rest_sync_single_location_callback',
-        'args'                => array(
-            'S3_index' => array(
-                'validate_callback' => function( $param, $request, $key ) {
-                    return ! empty( $param ); // Basic validation: not empty
-                },
-                'required' => true,
+	register_rest_route( 'phenix-sync/v1', '/location/(?P<S3_index>[a-zA-Z0-9_-]+)', array(
+		'methods'             => WP_REST_Server::READABLE, // GET request
+		'callback'            => 'phenixsync_rest_sync_single_location_callback',
+		'args'                => array(
+			'S3_index' => array(
+				'validate_callback' => function( $param, $request, $key ) {
+					return ! empty( $param ); // Basic validation: not empty
+				},
+				'required' => true,
 				'description' => __( 'The S3 index of the location to sync.', 'phenix-sync' ),
-            ),
-        ),
-    ) );
+			),
+		),
+	) );
 }
 add_action( 'rest_api_init', 'phenixsync_register_single_location_sync_endpoint' );
 
@@ -729,27 +750,27 @@ add_action( 'rest_api_init', 'phenixsync_register_single_location_sync_endpoint'
  * @return WP_REST_Response The REST API response.
  */
 function phenixsync_rest_sync_single_location_callback( WP_REST_Request $request ) {
-    $S3_index = $request->get_param( 'S3_index' );
+	$S3_index = $request->get_param( 'S3_index' );
 
-    if ( empty( $S3_index ) ) {
-        return new WP_REST_Response( array( 'message' => 'S3_index parameter is required.' ), 400 );
-    }
+	if ( empty( $S3_index ) ) {
+		return new WP_REST_Response( array( 'message' => 'S3_index parameter is required.' ), 400 );
+	}
 
-    // Rate limiting: Check if a request for this S3_index was made in the last 5 seconds
-    $transient_key = 'phenixsync_ratelimit_' . sanitize_key( $S3_index );
-    if ( get_transient( $transient_key ) ) {
-        return new WP_REST_Response( array( 'message' => 'Too many requests. Please wait a moment before trying again.' ), 429 );
-    }
+	// Rate limiting: Check if a request for this S3_index was made in the last 5 seconds
+	$transient_key = 'phenixsync_ratelimit_' . sanitize_key( $S3_index );
+	if ( get_transient( $transient_key ) ) {
+		return new WP_REST_Response( array( 'message' => 'Too many requests. Please wait a moment before trying again.' ), 429 );
+	}
 
-    // Set a transient to mark this request, expires in 5 seconds
-    set_transient( $transient_key, time(), 5 );
+	// Set a transient to mark this request, expires in 5 seconds
+	set_transient( $transient_key, time(), 5 );
 
-    // Trigger the single location sync
-    $sync_result = phenixsync_single_location_sync( $S3_index );
+	// Trigger the single location sync
+	$sync_result = phenixsync_single_location_sync( $S3_index );
 
-    if ( $sync_result ) {
-        return new WP_REST_Response( array( 'message' => "Location sync initiated for S3_index: {$S3_index}." ), 200 );
-    } else {
-        return new WP_REST_Response( array( 'message' => "Failed to initiate sync for S3_index: {$S3_index}. Check logs for details." ), 500 );
-    }
+	if ( $sync_result ) {
+		return new WP_REST_Response( array( 'message' => "Location sync initiated for S3_index: {$S3_index}." ), 200 );
+	} else {
+		return new WP_REST_Response( array( 'message' => "Failed to initiate sync for S3_index: {$S3_index}. Check logs for details." ), 500 );
+	}
 }

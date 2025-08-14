@@ -44,7 +44,7 @@ function phenixsync_locations_sync_init() {
 	phenixsync_remove_orphaned_tenants( $locations_s3_indices );
 	
 	// Store the filtered locations array in a transient
-	set_transient( 'phenixsync_locations_data', $filtered_locations_array, HOUR_IN_SECONDS );
+	set_transient( 'phenixsync_locations_data', $filtered_locations_array, DAY_IN_SECONDS );
 	
 	// Schedule the first batch
 	wp_schedule_single_event( time(), 'phenixsync_do_process_batch', array( 0 ) );

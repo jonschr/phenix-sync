@@ -416,30 +416,34 @@ function phenixsync_locations_api_request( $s3_index ) {
 			$api_url,
 			$duration
 		);
+
+		// If it timed out, note that in the message
 		if ( $timed_out ) {
 			$message .= "\n\nNOTE: The request TIMED OUT.";
-			// When it times out, include a direct resync URL with the location_index if available
-			$resync_location_index = null;
+		}
 
-			// Prefer the provided $s3_index; otherwise attempt to parse from the API URL
-			if ( ! empty( $s3_index ) ) {
-				$resync_location_index = $s3_index;
-			} else {
-				$query = parse_url( $api_url, PHP_URL_QUERY );
-				if ( $query ) {
-					parse_str( $query, $query_params );
-					if ( ! empty( $query_params['location_index'] ) ) {
-						$resync_location_index = $query_params['location_index'];
-					}
+		// Always attempt to provide a resync URL when an email is being sent.
+		$resync_location_index = null;
+
+		// Prefer the provided $s3_index; otherwise attempt to parse from the API URL
+		if ( ! empty( $s3_index ) ) {
+			$resync_location_index = $s3_index;
+		} else {
+			$query = parse_url( $api_url, PHP_URL_QUERY );
+			if ( $query ) {
+				parse_str( $query, $query_params );
+				if ( ! empty( $query_params['location_index'] ) ) {
+					$resync_location_index = $query_params['location_index'];
 				}
 			}
-
-			if ( ! empty( $resync_location_index ) ) {
-				$resync_base = 'https://utility24.salonsuitesolutions.com/utilities/phenix_website_resync.aspx';
-				$resync_url  = add_query_arg( 'location_index', $resync_location_index, $resync_base );
-				$message    .= "\n\nResync URL: {$resync_url}";
-			}
 		}
+
+		if ( ! empty( $resync_location_index ) ) {
+			$resync_base = 'https://utility24.salonsuitesolutions.com/utilities/phenix_website_resync.aspx';
+			$resync_url  = add_query_arg( 'location_index', $resync_location_index, $resync_base );
+			$message    .= "\n\nResync URL: {$resync_url}";
+		}
+
 		foreach ( $recipients as $recipient ) {
 			wp_mail( $recipient, $subject, $message );
 		}

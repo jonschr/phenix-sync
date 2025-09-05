@@ -453,6 +453,7 @@ function phenixsync_professionals_update_post( $professional, $post_id ) {
 		'booking_link'   => esc_url_raw( $professional['booking_link'] ),
 		'photo'          => esc_url_raw( $professional['photo'] ),
 		'bio'            => sanitize_textarea_field( $professional['bio'] ),
+		'gallery'        => $professional['gallery'],
 		'location_name'  => sanitize_text_field( $professional['location_name'] ),
 		'address1'  => sanitize_text_field( $address1 ),
 		'address2'  => sanitize_text_field( $address2 ),

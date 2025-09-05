@@ -32,6 +32,7 @@ function phenix_professionals_custom_columns( $columns ) {
         'website' => __( 'Website', 'phenixsync-textdomain' ),
         'booking_link' => __( 'Booking Link', 'phenixsync-textdomain' ),
         'photo' => __( 'Photo', 'phenixsync-textdomain' ),
+        'gallery' => __( 'Gallery', 'phenixsync-textdomain' ),
         'latitude' => __( 'Latitude', 'phenixsync-textdomain' ),
         'longitude' => __( 'Longitude', 'phenixsync-textdomain' ),
         'custom_field' => __( 'Custom Field', 'phenixsync-textdomain' ),
@@ -156,6 +157,28 @@ function phenix_professionals_custom_column_content( $column, $post_id ) {
             $value = get_post_meta( $post_id, 'photo', true );
             if ( $value ) {
                 echo '<a href="' . esc_url( $value ) . '" target="_blank" rel="noopener noreferrer"><img src="' . esc_url( $value ) . '" width="30" height="30" loading="lazy" alt="Photo" /></a>';
+            } else {
+                echo '-';
+            }
+            break;
+        case 'gallery':
+            $gallery = get_post_meta( $post_id, 'gallery', true );
+            if ( is_array( $gallery ) && ! empty( $gallery ) ) {
+                $display_count = min( 5, count( $gallery ) );
+                $overflow_count = count( $gallery ) - $display_count;
+                
+                echo '<div class="gallery-thumbnails" style="display: flex; gap: 2px; align-items: center;">';
+                for ( $i = 0; $i < $display_count; $i++ ) {
+                    if ( isset( $gallery[$i] ) && ! empty( $gallery[$i] ) ) {
+                        echo '<a href="' . esc_url( $gallery[$i] ) . '" target="_blank" rel="noopener noreferrer">';
+                        echo '<img src="' . esc_url( $gallery[$i] ) . '" width="25" height="25" loading="lazy" alt="Gallery ' . ($i + 1) . '" style="border-radius: 2px;" />';
+                        echo '</a>';
+                    }
+                }
+                if ( $overflow_count > 0 ) {
+                    echo '<span style="font-size: 11px; color: #666; margin-left: 4px;">+' . $overflow_count . '</span>';
+                }
+                echo '</div>';
             } else {
                 echo '-';
             }

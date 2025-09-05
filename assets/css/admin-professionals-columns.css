@@ -1,0 +1,109 @@
+/* Make the WP admin professionals table horizontally scrollable if it overflows */
+.wp-list-table.widefat.fixed {
+	max-width: none;
+	width: auto;
+	min-width: 100%;
+	table-layout: fixed;
+}
+
+/* Add scrolling wrapper for the table */
+.tablenav + .wp-list-table,
+.wp-list-table {
+	overflow-x: auto;
+}
+
+/* Optional: visually indicate scrollability */
+.tablenav + .wp-list-table::-webkit-scrollbar,
+.wp-list-table::-webkit-scrollbar {
+	height: 8px;
+}
+
+.tablenav + .wp-list-table::-webkit-scrollbar-thumb,
+.wp-list-table::-webkit-scrollbar-thumb {
+	background: #b3d4fc;
+	border-radius: 4px;
+}
+
+/* Limit column widths to 150px for custom columns */
+.wp-list-table th.column-api_link,
+.wp-list-table td.column-api_link,
+.wp-list-table th.column-last_modified,
+.wp-list-table td.column-last_modified,
+.wp-list-table th.column-name,
+.wp-list-table td.column-name,
+.wp-list-table th.column-s3_tenant_id,
+.wp-list-table td.column-s3_tenant_id,
+.wp-list-table th.column-s3_location_id,
+.wp-list-table td.column-s3_location_id,
+.wp-list-table th.column-suites,
+.wp-list-table td.column-suites,
+.wp-list-table th.column-location_name,
+.wp-list-table td.column-location_name,
+.wp-list-table th.column-services,
+.wp-list-table td.column-services,
+.wp-list-table th.column-bio,
+.wp-list-table td.column-bio,
+.wp-list-table th.column-email,
+.wp-list-table td.column-email,
+.wp-list-table th.column-phone,
+.wp-list-table td.column-phone,
+.wp-list-table th.column-profile_image,
+.wp-list-table td.column-profile_image,
+.wp-list-table th.column-instagram,
+.wp-list-table td.column-instagram,
+.wp-list-table th.column-facebook,
+.wp-list-table td.column-facebook,
+.wp-list-table th.column-x,
+.wp-list-table td.column-x,
+.wp-list-table th.column-website,
+.wp-list-table td.column-website,
+.wp-list-table th.column-booking_link,
+.wp-list-table td.column-booking_link,
+.wp-list-table th.column-photo,
+.wp-list-table td.column-photo,
+.wp-list-table th.column-latitude,
+.wp-list-table td.column-latitude,
+.wp-list-table th.column-longitude,
+.wp-list-table td.column-longitude,
+.wp-list-table th.column-custom_field,
+.wp-list-table td.column-custom_field {
+	min-width: 120px;
+	width: 150px;
+	max-width: 150px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Title column needs more space */
+.wp-list-table th.column-title,
+.wp-list-table td.column-title {
+	min-width: 325px !important;
+	width: 325px;
+	max-width: 325px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Published date column needs more space */
+.wp-list-table th.column-date,
+.wp-list-table td.column-date {
+	min-width: 180px !important;
+	width: 200px;
+	max-width: 200px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Remove extra padding from table headers */
+.wp-list-table th {
+	padding: 8px !important;
+}
+
+/* Smaller thumbnails */
+.wp-list-table img {
+	width: 30px;
+	height: 30px;
+}

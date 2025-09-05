@@ -1,0 +1,135 @@
+/* Make the WP admin columns table horizontally scrollable if it overflows */
+.wp-list-table.widefat.fixed {
+	max-width: none;
+	width: auto;
+	min-width: 100%;
+	table-layout: fixed;
+}
+
+/* Add scrolling wrapper for the table */
+.tablenav + .wp-list-table,
+.wp-list-table {
+	overflow-x: auto;
+}
+
+/* Optional: visually indicate scrollability */
+.tablenav + .wp-list-table::-webkit-scrollbar,
+.wp-list-table::-webkit-scrollbar {
+	height: 8px;
+}
+
+.tablenav + .wp-list-table::-webkit-scrollbar-thumb,
+.wp-list-table::-webkit-scrollbar-thumb {
+	background: #b3d4fc;
+	border-radius: 4px;
+}
+
+/* Limit column widths to 150px for custom columns */
+.wp-list-table th.column-last_modified,
+.wp-list-table td.column-last_modified,
+.wp-list-table th.column-phenix_franchise_license_index,
+.wp-list-table td.column-phenix_franchise_license_index,
+.wp-list-table th.column-s3_index,
+.wp-list-table td.column-s3_index,
+.wp-list-table th.column-address1,
+.wp-list-table td.column-address1,
+.wp-list-table th.column-address2,
+.wp-list-table td.column-address2,
+.wp-list-table th.column-city,
+.wp-list-table td.column-city,
+.wp-list-table th.column-state,
+.wp-list-table td.column-state,
+.wp-list-table th.column-zip,
+.wp-list-table td.column-zip,
+.wp-list-table th.column-country,
+.wp-list-table td.column-country,
+.wp-list-table th.column-phone,
+.wp-list-table td.column-phone,
+.wp-list-table th.column-phone_tree_number,
+.wp-list-table td.column-phone_tree_number,
+.wp-list-table th.column-two_way_texting_number,
+.wp-list-table td.column-two_way_texting_number,
+.wp-list-table th.column-email,
+.wp-list-table td.column-email,
+.wp-list-table th.column-website_url,
+.wp-list-table td.column-website_url,
+.wp-list-table th.column-landscape_url,
+.wp-list-table td.column-landscape_url,
+.wp-list-table th.column-image1_url,
+.wp-list-table td.column-image1_url,
+.wp-list-table th.column-image2_url,
+.wp-list-table td.column-image2_url,
+.wp-list-table th.column-image3_url,
+.wp-list-table td.column-image3_url,
+.wp-list-table th.column-portrait_image_URL,
+.wp-list-table td.column-portrait_image_URL,
+.wp-list-table th.column-floor_plan_image_URL,
+.wp-list-table td.column-floor_plan_image_URL,
+.wp-list-table th.column-suite_count,
+.wp-list-table td.column-suite_count,
+.wp-list-table th.column-coming_soon,
+.wp-list-table td.column-coming_soon,
+.wp-list-table th.column-facebook_url,
+.wp-list-table td.column-facebook_url,
+.wp-list-table th.column-instagram_url,
+.wp-list-table td.column-instagram_url,
+.wp-list-table th.column-api_link,
+.wp-list-table td.column-api_link,
+.wp-list-table th.column-states,
+.wp-list-table td.column-states {
+	min-width: 120px;
+	width: 150px;
+	max-width: 150px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Location token column can be as wide as needed */
+.wp-list-table th.column-location_token,
+.wp-list-table td.column-location_token {
+	width: auto;
+	max-width: none;
+	white-space: nowrap;
+}
+
+/* Title column needs more space */
+.wp-list-table th.column-title,
+.wp-list-table td.column-title {
+	min-width: 325px !important;
+	width: 325px;
+	max-width: 325px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Time zone column needs minimum width for heading */
+.wp-list-table th.column-time_zone,
+.wp-list-table td.column-time_zone {
+	min-width: 100px !important;
+	width: 120px;
+	max-width: 120px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Published date column needs more space */
+.wp-list-table th.column-date,
+.wp-list-table td.column-date {
+	min-width: 180px !important;
+	width: 200px;
+	max-width: 200px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Remove extra padding from table headers */
+/* .wp-list-table th[scope='col'] {
+	padding: 0 10px !important;
+	a {
+		padding: 0 !important;
+	}
+} */

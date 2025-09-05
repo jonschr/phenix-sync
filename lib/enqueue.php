@@ -40,5 +40,17 @@ add_action( 'wp_enqueue_scripts', 'phenixsync_enqueue_scripts_stylesheets' );
  * Admin enqueues
  */
 function phenixsync_enqueue_scripts_stylesheets_admin() {
+	wp_enqueue_style(
+		'phenixsync-admin-columns-scroll',
+		plugins_url( '../assets/css/admin-columns-scroll.css', __FILE__ ),
+		array(),
+		filemtime( plugin_dir_path( __FILE__ ) . '../assets/css/admin-columns-scroll.css' )
+	);
+	wp_enqueue_style(
+		'phenixsync-admin-professionals-columns',
+		plugins_url( '../assets/css/admin-professionals-columns.css', __FILE__ ),
+		array(),
+		filemtime( plugin_dir_path( __FILE__ ) . '../assets/css/admin-professionals-columns.css' )
+	);
 }
 add_action( 'admin_enqueue_scripts', 'phenixsync_enqueue_scripts_stylesheets_admin' );

@@ -305,6 +305,37 @@ function phenixsync_professionals_api_request( $s3_index ) {
 	return $result;
 }
 
+function phenixsync_process_gallery_data( $gallery_data ) {
+	if ( empty( $gallery_data ) || ! is_array( $gallery_data ) ) {
+		return array();
+	}
+	
+	$processed_gallery = array();
+	
+	foreach ( $gallery_data as $item ) {
+		$url = '';
+		
+		// Handle different possible structures
+		if ( is_string( $item ) ) {
+			$url = $item;
+		} elseif ( is_array( $item ) && isset( $item['image'] ) ) {
+			// New structure: $professional['gallery'][0]['image'] = "theimageurlstring.jpg"
+			$url = $item['image'];
+		} elseif ( is_array( $item ) && isset( $item['url'] ) ) {
+			$url = $item['url'];
+		} elseif ( is_array( $item ) && isset( $item[0] ) && is_string( $item[0] ) ) {
+			$url = $item[0];
+		}
+		
+		// Sanitize and validate the URL
+		if ( ! empty( $url ) && is_string( $url ) ) {
+			$processed_gallery[] = esc_url_raw( $url );
+		}
+	}
+	
+	return $processed_gallery;
+}
+
 function phenix_save_pros_sync_details_to_location( $response, $s3_index ) {
 	// use the $s3_index to get the location post ID.
 	$args = array(
@@ -453,7 +484,7 @@ function phenixsync_professionals_update_post( $professional, $post_id ) {
 		'booking_link'   => esc_url_raw( $professional['booking_link'] ),
 		'photo'          => esc_url_raw( $professional['photo'] ),
 		'bio'            => sanitize_textarea_field( $professional['bio'] ),
-		'gallery'        => $professional['gallery'],
+		'gallery'        => phenixsync_process_gallery_data( $professional['gallery'] ),
 		'location_name'  => sanitize_text_field( $professional['location_name'] ),
 		'address1'  => sanitize_text_field( $address1 ),
 		'address2'  => sanitize_text_field( $address2 ),
@@ -588,3 +619,59 @@ function phenixsync_remove_deleted_professionals( $professionals_array, $s3_loca
 		error_log( "phenixsync_remove_deleted_professionals: Deleted {$deleted_count} professionals for s3_location_id {$s3_location_id}" );
 	}
 }
+
+/**
+ * AJAX handler for syncing individual professional
+ */
+function phenixsync_ajax_sync_professional() {
+	// Check nonce for security
+	if ( ! wp_verify_nonce( $_POST['nonce'], 'phenixsync_sync_nonce' ) ) {
+		wp_die( 'Security check failed' );
+	}
+	
+	// Check user capabilities
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_die( 'Insufficient permissions' );
+	}
+	
+	$post_id = intval( $_POST['post_id'] );
+	$location_id = sanitize_text_field( $_POST['location_id'] );
+	
+	// Run the sync
+	$result = phenixsync_sync_individual_location_professionals( $location_id, true );
+	
+	if ( is_wp_error( $result ) ) {
+		wp_send_json_error( $result->get_error_message() );
+	} else {
+		wp_send_json_success( 'Professional synced successfully' );
+	}
+}
+add_action( 'wp_ajax_phenixsync_sync_professional', 'phenixsync_ajax_sync_professional' );
+
+/**
+ * AJAX handler for syncing individual location
+ */
+function phenixsync_ajax_sync_location() {
+	// Check nonce for security
+	if ( ! wp_verify_nonce( $_POST['nonce'], 'phenixsync_sync_nonce' ) ) {
+		wp_die( 'Security check failed' );
+	}
+	
+	// Check user capabilities
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_die( 'Insufficient permissions' );
+	}
+	
+	$post_id = intval( $_POST['post_id'] );
+	$s3_index = sanitize_text_field( $_POST['s3_index'] );
+	
+	// Use the location-specific sync function
+	$result = phenixsync_single_location_sync( $s3_index );
+	
+	if ( ! $result ) {
+		wp_send_json_error( 'Location sync failed' );
+	} else {
+		wp_send_json_success( 'Location synced successfully' );
+	}
+}
+add_action( 'wp_ajax_phenixsync_sync_location', 'phenixsync_ajax_sync_location' );

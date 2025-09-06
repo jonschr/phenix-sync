@@ -15,6 +15,7 @@ function phenix_locations_custom_columns( $columns ) {
         'cb' => isset($columns['cb']) ? $columns['cb'] : '', // Checkbox column
         'title' => isset($columns['title']) ? $columns['title'] : __( 'Title' ), // Title column
         'api_link' => __( 'API Link', 'phenixsync-textdomain' ),
+        'sync' => __( 'Sync', 'phenixsync-textdomain' ),
         'last_modified' => __( 'Last Modified', 'phenixsync-textdomain' ),
         'phenix_franchise_license_index' => __( 'Franchise License Index', 'phenixsync-textdomain' ),
         's3_index' => __( 'S3 Index', 'phenixsync-textdomain' ),
@@ -70,6 +71,14 @@ function phenix_locations_custom_column_content( $column, $post_id ) {
                     'location_index' => $s3_index,
                 ), $base_url );
                 echo '<a href="' . esc_url( $api_url ) . '" target="_blank" rel="noopener noreferrer">View API</a>';
+            } else {
+                echo '-';
+            }
+            break;
+        case 'sync':
+            $s3_index = get_post_meta( $post_id, 's3_index', true );
+            if ( $s3_index ) {
+                echo '<button type="button" class="button button-small sync-location-btn" data-s3-index="' . esc_attr( $s3_index ) . '" data-post-id="' . esc_attr( $post_id ) . '">Sync Now</button>';
             } else {
                 echo '-';
             }

@@ -52,5 +52,20 @@ function phenixsync_enqueue_scripts_stylesheets_admin() {
 		array(),
 		filemtime( plugin_dir_path( __FILE__ ) . '../assets/css/admin-professionals-columns.css' )
 	);
+	
+	// Enqueue admin JavaScript for sync buttons
+	wp_enqueue_script( 
+		'phenixsync-admin-scripts', 
+		PHENIX_SYNC_PATH . 'dist/js/phenixsync-scripts.js', 
+		array( 'jquery' ), 
+		PHENIX_SYNC_VERSION, 
+		true 
+	);
+	
+	// Localize script for AJAX
+	wp_localize_script( 'phenixsync-admin-scripts', 'phenixsync_ajax', array(
+		'ajax_url' => admin_url( 'admin-ajax.php' ),
+		'nonce' => wp_create_nonce( 'phenixsync_sync_nonce' )
+	) );
 }
 add_action( 'admin_enqueue_scripts', 'phenixsync_enqueue_scripts_stylesheets_admin' );

@@ -15,6 +15,7 @@ function phenix_professionals_custom_columns( $columns ) {
         'cb' => isset($columns['cb']) ? $columns['cb'] : '', // Checkbox column
         'title' => isset($columns['title']) ? $columns['title'] : __( 'Title' ), // Title column
         'api_link' => __( 'API Link', 'phenixsync-textdomain' ),
+        'sync' => __( 'Sync', 'phenixsync-textdomain' ),
         'name' => __( 'Name', 'phenixsync-textdomain' ),
         'last_modified' => __( 'Last Modified', 'phenixsync-textdomain' ),
         's3_tenant_id' => __( 'S3 Tenant ID', 'phenixsync-textdomain' ),
@@ -61,6 +62,14 @@ function phenix_professionals_custom_column_content( $column, $post_id ) {
                     'location_index' => $s3_location_id,
                 ), $base_url );
                 echo '<a href="' . esc_url( $api_url ) . '" target="_blank" rel="noopener noreferrer">View API</a>';
+            } else {
+                echo '-';
+            }
+            break;
+        case 'sync':
+            $s3_location_id = get_post_meta( $post_id, 's3_location_id', true );
+            if ( $s3_location_id ) {
+                echo '<button type="button" class="button button-small sync-professional-btn" data-location-id="' . esc_attr( $s3_location_id ) . '" data-post-id="' . esc_attr( $post_id ) . '">Sync Now</button>';
             } else {
                 echo '-';
             }
@@ -170,9 +179,21 @@ function phenix_professionals_custom_column_content( $column, $post_id ) {
                 echo '<div class="gallery-thumbnails" style="display: flex; gap: 2px; align-items: center;">';
                 for ( $i = 0; $i < $display_count; $i++ ) {
                     if ( isset( $gallery[$i] ) && ! empty( $gallery[$i] ) ) {
-                        echo '<a href="' . esc_url( $gallery[$i] ) . '" target="_blank" rel="noopener noreferrer">';
-                        echo '<img src="' . esc_url( $gallery[$i] ) . '" width="25" height="25" loading="lazy" alt="Gallery ' . ($i + 1) . '" style="border-radius: 2px;" />';
-                        echo '</a>';
+                        // Handle different gallery data structures
+                        $image_url = '';
+                        if ( is_string( $gallery[$i] ) ) {
+                            $image_url = $gallery[$i];
+                        } elseif ( is_array( $gallery[$i] ) && isset( $gallery[$i]['url'] ) ) {
+                            $image_url = $gallery[$i]['url'];
+                        } elseif ( is_array( $gallery[$i] ) && isset( $gallery[$i][0] ) && is_string( $gallery[$i][0] ) ) {
+                            $image_url = $gallery[$i][0];
+                        }
+                        
+                        if ( ! empty( $image_url ) && is_string( $image_url ) ) {
+                            echo '<a href="' . esc_url( $image_url ) . '" target="_blank" rel="noopener noreferrer">';
+                            echo '<img src="' . esc_url( $image_url ) . '" width="25" height="25" loading="lazy" alt="Gallery ' . ($i + 1) . '" style="border-radius: 2px;" />';
+                            echo '</a>';
+                        }
                     }
                 }
                 if ( $overflow_count > 0 ) {

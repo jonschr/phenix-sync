@@ -109,3 +109,26 @@
 	width: 30px;
 	height: 30px;
 }
+
+/* Sync button styling */
+.sync-professional-btn,
+.sync-location-btn {
+	margin: 2px 0;
+	padding: 2px 8px;
+	font-size: 11px;
+	line-height: 1.5;
+	min-height: 20px;
+}
+
+.sync-professional-btn:disabled,
+.sync-location-btn:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
+
+/* Success state for sync buttons */
+.button-success {
+	background-color: #46b450 !important;
+	border-color: #46b450 !important;
+	color: #fff !important;
+}

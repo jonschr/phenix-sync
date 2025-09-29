@@ -51,6 +51,8 @@ function phenix_locations_custom_columns( $columns ) {
     return $new_columns;
 }
 add_filter( 'manage_locations_posts_columns', 'phenix_locations_custom_columns' );
+add_filter( 'manage_edit-locations_sortable_columns', 'phenix_locations_sortable_columns' );
+add_action( 'pre_get_posts', 'phenix_locations_orderby' );
 
 /**
  * Populate custom columns with data
@@ -243,3 +245,81 @@ function phenix_locations_custom_column_content( $column, $post_id ) {
     }
 }
 add_action( 'manage_locations_posts_custom_column', 'phenix_locations_custom_column_content', 10, 2 );
+
+/**
+ * Make columns sortable
+ *
+ * @param array $columns The sortable columns.
+ * @return array Modified sortable columns.
+ */
+function phenix_locations_sortable_columns( $columns ) {
+    $columns['last_modified'] = 'modified';
+    $columns['phenix_franchise_license_index'] = 'phenix_franchise_license_index';
+    $columns['s3_index'] = 's3_index';
+    $columns['city'] = 'city';
+    $columns['state'] = 'state';
+    $columns['zip'] = 'zip';
+    $columns['country'] = 'country';
+    $columns['phone'] = 'phone';
+    $columns['email'] = 'email';
+    $columns['suite_count'] = 'suite_count';
+    return $columns;
+}
+
+/**
+ * Handle sorting for custom columns
+ *
+ * @param WP_Query $query The query object.
+ */
+function phenix_locations_orderby( $query ) {
+    if ( ! is_admin() || ! $query->is_main_query() ) {
+        return;
+    }
+
+    if ( $query->get( 'post_type' ) !== 'locations' ) {
+        return;
+    }
+
+    $orderby = $query->get( 'orderby' );
+
+    if ( $orderby ) {
+        switch ( $orderby ) {
+            case 'phenix_franchise_license_index':
+                $query->set( 'meta_key', 'phenix_franchise_license_index' );
+                $query->set( 'orderby', 'meta_value_num' );
+                break;
+            case 's3_index':
+                $query->set( 'meta_key', 's3_index' );
+                $query->set( 'orderby', 'meta_value_num' );
+                break;
+            case 'city':
+                $query->set( 'meta_key', 'city' );
+                $query->set( 'orderby', 'meta_value' );
+                break;
+            case 'state':
+                $query->set( 'meta_key', 'state' );
+                $query->set( 'orderby', 'meta_value' );
+                break;
+            case 'zip':
+                $query->set( 'meta_key', 'zip' );
+                $query->set( 'orderby', 'meta_value' );
+                break;
+            case 'country':
+                $query->set( 'meta_key', 'country' );
+                $query->set( 'orderby', 'meta_value' );
+                break;
+            case 'phone':
+                $query->set( 'meta_key', 'phone' );
+                $query->set( 'orderby', 'meta_value' );
+                break;
+            case 'email':
+                $query->set( 'meta_key', 'email' );
+                $query->set( 'orderby', 'meta_value' );
+                break;
+            case 'suite_count':
+                $query->set( 'meta_key', 'suite_count' );
+                $query->set( 'orderby', 'meta_value_num' );
+                break;
+        }
+    }
+}

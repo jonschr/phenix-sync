@@ -1,3 +1,7 @@
+## 0.5.4
+
+-   Adding functionality to better remove old tenants who have been orphaned (using a sql query to do this efficiently)
+
 ## 0.5.1
 
 -   Fixing a couple of errors where we call functions in plugins not present or which were in the main Phenix theme

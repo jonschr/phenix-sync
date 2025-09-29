@@ -42,6 +42,8 @@ function phenix_professionals_custom_columns( $columns ) {
     return $new_columns;
 }
 add_filter( 'manage_professionals_posts_columns', 'phenix_professionals_custom_columns' );
+add_filter( 'manage_edit-professionals_sortable_columns', 'phenix_professionals_sortable_columns' );
+add_action( 'pre_get_posts', 'phenix_professionals_orderby' );
 
 /**
  * Populate custom columns with data
@@ -219,3 +221,66 @@ function phenix_professionals_custom_column_content( $column, $post_id ) {
     }
 }
 add_action( 'manage_professionals_posts_custom_column', 'phenix_professionals_custom_column_content', 10, 2 );
+
+/**
+ * Make columns sortable
+ *
+ * @param array $columns The sortable columns.
+ * @return array Modified sortable columns.
+ */
+function phenix_professionals_sortable_columns( $columns ) {
+    $columns['name'] = 'name';
+    $columns['last_modified'] = 'modified';
+    $columns['s3_tenant_id'] = 's3_tenant_id';
+    $columns['s3_location_id'] = 's3_location_id';
+    $columns['location_name'] = 'location_name';
+    $columns['email'] = 'email';
+    $columns['phone'] = 'phone';
+    return $columns;
+}
+
+/**
+ * Handle sorting for custom columns
+ *
+ * @param WP_Query $query The query object.
+ */
+function phenix_professionals_orderby( $query ) {
+    if ( ! is_admin() || ! $query->is_main_query() ) {
+        return;
+    }
+
+    if ( $query->get( 'post_type' ) !== 'professionals' ) {
+        return;
+    }
+
+    $orderby = $query->get( 'orderby' );
+
+    if ( $orderby ) {
+        switch ( $orderby ) {
+            case 'name':
+                $query->set( 'meta_key', 'name' );
+                $query->set( 'orderby', 'meta_value' );
+                break;
+            case 's3_tenant_id':
+                $query->set( 'meta_key', 's3_tenant_id' );
+                $query->set( 'orderby', 'meta_value' );
+                break;
+            case 's3_location_id':
+                $query->set( 'meta_key', 's3_location_id' );
+                $query->set( 'orderby', 'meta_value_num' );
+                break;
+            case 'location_name':
+                $query->set( 'meta_key', 'location_name' );
+                $query->set( 'orderby', 'meta_value' );
+                break;
+            case 'email':
+                $query->set( 'meta_key', 'email' );
+                $query->set( 'orderby', 'meta_value' );
+                break;
+            case 'phone':
+                $query->set( 'meta_key', 'phone' );
+                $query->set( 'orderby', 'meta_value' );
+                break;
+        }
+    }
+}

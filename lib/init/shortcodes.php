@@ -61,6 +61,45 @@ function phenix_location_phone_shortcode_func( $atts ) {
 }
 add_shortcode( 'phenix_location_phone', 'phenix_location_phone_shortcode_func' );
 
+function phenix_location_phone_link_shortcode_func( $atts ) {
+	$a = shortcode_atts( array(
+		's3_index' => null,
+	), $atts );
+
+	$phone = phenix_get_location_meta_by_s3_index( $a['s3_index'], 'phone' );
+	
+	if ( ! $phone ) {
+		return '';
+	}
+	
+	// Strip all non-digits for the tel: href
+	$phone_digits = preg_replace( '/[^0-9]/', '', $phone );
+	
+	// Format the display version as (XXX) XXX-XXXX if we have 10 digits
+	if ( strlen( $phone_digits ) === 10 ) {
+		$phone_display = sprintf(
+			'(%s) %s-%s',
+			substr( $phone_digits, 0, 3 ),
+			substr( $phone_digits, 3, 3 ),
+			substr( $phone_digits, 6, 4 )
+		);
+	} elseif ( strlen( $phone_digits ) === 11 && $phone_digits[0] === '1' ) {
+		// Handle 11-digit numbers starting with 1 (US country code)
+		$phone_display = sprintf(
+			'+1 (%s) %s-%s',
+			substr( $phone_digits, 1, 3 ),
+			substr( $phone_digits, 4, 3 ),
+			substr( $phone_digits, 7, 4 )
+		);
+	} else {
+		// Fallback to original format if not standard length
+		$phone_display = esc_html( $phone );
+	}
+	
+	return sprintf( '<a href="tel:%s">%s</a>', esc_attr( $phone_digits ), $phone_display );
+}
+add_shortcode( 'phenix_location_phone_link', 'phenix_location_phone_link_shortcode_func' );
+
 function phenix_location_address_shortcode_func( $atts ) {
 	$a = shortcode_atts( array(
 		's3_index' => null,
@@ -110,6 +149,25 @@ function phenix_location_address_shortcode_func( $atts ) {
 	return ob_get_clean();
 }
 add_shortcode( 'phenix_location_address', 'phenix_location_address_shortcode_func' );
+
+function phenix_location_address_link_shortcode_func( $atts ) {
+	$a = shortcode_atts( array(
+		's3_index' => null,
+	), $atts );
+
+	// Get the address using the existing shortcode function
+	$address = phenix_location_address_shortcode_func( $a );
+	
+	if ( ! $address ) {
+		return '';
+	}
+	
+	// Build the Google Maps URL
+	$maps_url = 'https://www.google.com/maps/search/?api=1&query=' . urlencode( $address );
+	
+	return sprintf( '<a href="%s" target="_blank" rel="noopener noreferrer">%s</a>', esc_url( $maps_url ), esc_html( $address ) );
+}
+add_shortcode( 'phenix_location_address_link', 'phenix_location_address_link_shortcode_func' );
 
 function phenix_location_city_state_shortcode_func( $atts ) {
 	$a = shortcode_atts( array(

@@ -128,11 +128,37 @@ function phenix_sync_options_page() {
 			</div>
 			
 			<div style="border: 1px solid #ddd; padding: 20px; border-radius: 5px; background: white;">
+				<h3 style="margin-top: 0;">Location Phone Link</h3>
+				<p>Displays the phone number as a clickable <code>tel:</code> link. The phone number is automatically formatted as (XXX) XXX-XXXX for display.</p>
+				<h4>Examples:</h4>
+				<code style="background: #f1f1f1; padding: 5px; display: block; margin: 5px 0;">[phenix_location_phone_link]</code>
+				<code style="background: #f1f1f1; padding: 5px; display: block; margin: 5px 0;">[phenix_location_phone_link s3_index="123"]</code>
+				<p><strong>Output:</strong> <code>&lt;a href="tel:5551234567"&gt;(555) 123-4567&lt;/a&gt;</code></p>
+				<p><strong>Parameters:</strong></p>
+				<ul style="margin-bottom: 0;">
+					<li><code>s3_index</code> (optional) - The S3 index of the specific location to display</li>
+				</ul>
+			</div>
+			
+			<div style="border: 1px solid #ddd; padding: 20px; border-radius: 5px; background: white;">
 				<h3 style="margin-top: 0;">Location Address</h3>
 				<p>Displays the full formatted address for a location (address1, address2, city, state, zip).</p>
 				<h4>Examples:</h4>
 				<code style="background: #f1f1f1; padding: 5px; display: block; margin: 5px 0;">[phenix_location_address]</code>
 				<code style="background: #f1f1f1; padding: 5px; display: block; margin: 5px 0;">[phenix_location_address s3_index="123"]</code>
+				<p><strong>Parameters:</strong></p>
+				<ul style="margin-bottom: 0;">
+					<li><code>s3_index</code> (optional) - The S3 index of the specific location to display</li>
+				</ul>
+			</div>
+			
+			<div style="border: 1px solid #ddd; padding: 20px; border-radius: 5px; background: white;">
+				<h3 style="margin-top: 0;">Location Address Link</h3>
+				<p>Displays the full formatted address as a clickable link that opens in Google Maps.</p>
+				<h4>Examples:</h4>
+				<code style="background: #f1f1f1; padding: 5px; display: block; margin: 5px 0;">[phenix_location_address_link]</code>
+				<code style="background: #f1f1f1; padding: 5px; display: block; margin: 5px 0;">[phenix_location_address_link s3_index="123"]</code>
+				<p><strong>Output:</strong> <code>&lt;a href="https://www.google.com/maps/search/?api=1&amp;query=..." target="_blank"&gt;123 Main St, City, State, 12345&lt;/a&gt;</code></p>
 				<p><strong>Parameters:</strong></p>
 				<ul style="margin-bottom: 0;">
 					<li><code>s3_index</code> (optional) - The S3 index of the specific location to display</li>

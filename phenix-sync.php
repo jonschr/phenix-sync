@@ -3,7 +3,7 @@
 	Plugin Name:    Phenix Sync
 	Plugin URI:     https://elod.in
 	Description:    Sync data from the Phenix API to your WordPress site.
-	Version:        0.6.2
+	Version:        0.6.3
 	Author:         Jon Schroeder
 	Author URI:     https://elod.in
 	Text Domain:    phenixsync-textdomain
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 // Plugin base values.
 define( 'PHENIX_SYNC', __DIR__ );
-define( 'PHENIX_SYNC_VERSION', '0.6.2' );
+define( 'PHENIX_SYNC_VERSION', '0.6.3' );
 
 // Set up plugin directories.
 define( 'PHENIX_SYNC_DIR', plugin_dir_path( __FILE__ ) );
@@ -60,4 +60,4 @@ $update_checker = Puc_v4_Factory::buildUpdateChecker(
 );
 
 // Optional: Set the branch that contains the stable release.
-$update_checker->setBranch( 'main' );
+$update_checker->setBranch( 'master' );

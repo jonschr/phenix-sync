@@ -271,6 +271,9 @@ function phenix_location_professionals_shortcode_func( $atts ) {
 				'compare' => '='
 			)
 		),
+		'meta_key' => 'suites',
+		'orderby' => 'meta_value_num',
+		'order' => 'ASC',
 		'posts_per_page' => -1 // get all matching professionals
 	) );
 	

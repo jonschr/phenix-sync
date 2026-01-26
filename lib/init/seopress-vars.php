@@ -36,6 +36,45 @@ function phenixsync_seopress_get_current_post() {
 }
 
 /**
+ * Resolve the locations post for SEOPress variables.
+ *
+ * @return WP_Post|null
+ */
+function phenixsync_seopress_get_location_post() {
+	$post = phenixsync_seopress_get_current_post();
+	if ( $post && 'locations' === $post->post_type ) {
+		return $post;
+	}
+
+	$s3_index = '';
+	if ( function_exists( 'phenix_get_page_related_s3_index' ) ) {
+		$s3_index = phenix_get_page_related_s3_index();
+	}
+
+	if ( ! $s3_index ) {
+		return null;
+	}
+
+	$location_posts = get_posts( array(
+		'post_type' => 'locations',
+		'meta_query' => array(
+			array(
+				'key' => 's3_index',
+				'value' => $s3_index,
+				'compare' => '=',
+			),
+		),
+		'numberposts' => 1,
+	) );
+
+	if ( empty( $location_posts ) || ! ( $location_posts[0] instanceof WP_Post ) ) {
+		return null;
+	}
+
+	return $location_posts[0];
+}
+
+/**
  * Get location meta for a locations post.
  *
  * @param WP_Post $post Post object.
@@ -43,7 +82,12 @@ function phenixsync_seopress_get_current_post() {
  * @return string
  */
 function phenixsync_seopress_get_location_meta( $post, $meta_key ) {
-	if ( ! $post || 'locations' !== $post->post_type ) {
+	$resolved_post = $post;
+	if ( ! $resolved_post || 'locations' !== $resolved_post->post_type ) {
+		$resolved_post = phenixsync_seopress_get_location_post();
+	}
+
+	if ( ! $resolved_post || 'locations' !== $resolved_post->post_type ) {
 		return '';
 	}
 
@@ -52,7 +96,7 @@ function phenixsync_seopress_get_location_meta( $post, $meta_key ) {
 		return '';
 	}
 
-	$value = get_post_meta( $post->ID, $meta_key, true );
+	$value = get_post_meta( $resolved_post->ID, $meta_key, true );
 	return $value ? sanitize_text_field( $value ) : '';
 }
 
@@ -210,7 +254,7 @@ add_filter( 'seopress_titles_template_variables_array', 'phenixsync_seopress_add
  * @return array
  */
 function phenixsync_seopress_add_template_replacements( $replacements ) {
-	$post = phenixsync_seopress_get_current_post();
+	$post = phenixsync_seopress_get_location_post();
 	$post_type = $post ? $post->post_type : '';
 
 	$location_city = '';

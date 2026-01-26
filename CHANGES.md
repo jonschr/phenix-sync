@@ -1,3 +1,11 @@
+## 0.6.3
+
+-   Updates should now trigger from the 'master' branch, not 'main'
+
+## 0.6.2
+
+-   Order the pros by suite numbers in the main loop
+
 ## 0.5.4
 
 -   Adding functionality to better remove old tenants who have been orphaned (using a sql query to do this efficiently)

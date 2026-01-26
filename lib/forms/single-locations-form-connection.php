@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Send the Quote form to Yardi
+ * Send the Quote form to Find a Suite API
  *
  * @param   array $entry  details about the entry.
  * @param   array $form   details about the form.

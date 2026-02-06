@@ -3,6 +3,7 @@
 // Add admin menu
 add_action('admin_menu', 'phenix_sync_add_admin_menu');
 add_action('admin_init', 'phenix_sync_settings_init');
+add_action('admin_notices', 'phenix_sync_admin_notice_sync_disabled');
 
 function phenix_sync_add_admin_menu() {
 	add_options_page(
@@ -22,6 +23,14 @@ function phenix_sync_settings_init() {
 		'Sync Configuration',
 		'phenix_sync_settings_section_callback',
 		'phenix_sync_settings'
+	);
+
+	add_settings_field(
+		'phenix_sync_enabled',
+		'Enable Sync',
+		'phenix_sync_enabled_render',
+		'phenix_sync_settings',
+		'phenix_sync_main_section'
 	);
 
 	add_settings_field(
@@ -45,6 +54,17 @@ function phenix_sync_settings_section_callback() {
 	echo '<p>Configure the properties to sync with Phenix Sync.</p>';
 }
 
+function phenix_sync_enabled_render() {
+	$options = get_option('phenix_sync_options');
+	$enabled = true;
+	if (is_array($options) && array_key_exists('phenix_sync_enabled', $options)) {
+		$enabled = (bool) $options['phenix_sync_enabled'];
+	}
+
+	echo '<label><input type="checkbox" name="phenix_sync_options[phenix_sync_enabled]" value="1" ' . checked($enabled, true, false) . ' /> Enable sync</label>';
+	echo '<p class="description">When disabled, all scheduled and manual syncs are paused.</p>';
+}
+
 function phenix_sync_property_ids_render() {
 	$options = get_option('phenix_sync_options');
 	$property_ids = isset($options['phenix_synced_location_s3_ids']) ? $options['phenix_synced_location_s3_ids'] : array();
@@ -64,6 +84,9 @@ function phenix_sync_api_password_render() {
 
 function phenix_sync_sanitize_options($input) {
 	$sanitized = array();
+	$input = is_array($input) ? $input : array();
+
+	$sanitized['phenix_sync_enabled'] = !empty($input['phenix_sync_enabled']) ? 1 : 0;
 	
 	if (isset($input['phenix_synced_location_s3_ids'])) {
 		$raw_input = $input['phenix_synced_location_s3_ids'];
@@ -218,6 +241,23 @@ function phenix_sync_options_page() {
 	<?php
 }
 
+function phenix_sync_admin_notice_sync_disabled() {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		return;
+	}
+
+	if ( phenix_sync_is_enabled() ) {
+		return;
+	}
+
+	$settings_url = admin_url( 'options-general.php?page=phenix-sync' );
+
+	echo '<div class="notice notice-error"><p>';
+	echo 'Notice syncing from the Phenix API is turned off for this site. Locations and Professionals will not sync at this time. ';
+	echo '<a href="' . esc_url( $settings_url ) . '">Please go here to configure.</a>';
+	echo '</p></div>';
+}
+
 // Helper function to get synced property IDs
 function phenix_sync_get_property_ids() {
 	$options = get_option('phenix_sync_options');
@@ -228,6 +268,15 @@ function phenix_sync_get_property_ids() {
 function phenix_sync_get_api_password() {
 	$options = get_option('phenix_sync_options');
 	return isset($options['phenix_api_password']) ? $options['phenix_api_password'] : '';
+}
+
+// Helper function to get sync enabled status (default on).
+function phenix_sync_is_enabled() {
+	$options = get_option('phenix_sync_options');
+	if (!is_array($options) || !array_key_exists('phenix_sync_enabled', $options)) {
+		return true;
+	}
+	return (bool) $options['phenix_sync_enabled'];
 }
 
 // Helper function to clear all transients and cron events

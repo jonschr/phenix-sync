@@ -28,6 +28,12 @@ function phenixsync_professionals_test_sync_location() {
  * @return void
  */
 function phenixsync_schedule_professionals_sync() {
+	if ( ! phenix_sync_is_enabled() ) {
+		wp_clear_scheduled_hook( 'phenixsync_professionals_cron_hook' );
+		wp_clear_scheduled_hook( 'phenixsync_sync_individual_location_professionals_event' );
+		return;
+	}
+
 	if ( ! wp_next_scheduled( 'phenixsync_professionals_cron_hook' ) ) {
 		wp_schedule_event( time(), 'daily', 'phenixsync_professionals_cron_hook' );
 	}
@@ -40,6 +46,11 @@ add_action( 'wp', 'phenixsync_schedule_professionals_sync' );
  * @return  void.
  */
 function phenixsync_professionals_manage_sync_process() {
+	if ( ! phenix_sync_is_enabled() ) {
+		error_log( 'Phenix Sync: Professionals sync skipped (sync disabled).' );
+		return;
+	}
+
 	$location_ids = phenixsync_professionals_loop_through_locations_and_get_s3_location_ids();
 	$location_ids = array_unique( $location_ids );
 	
@@ -65,6 +76,11 @@ add_action( 'phenixsync_sync_individual_location_professionals_event', 'phenixsy
  * @return bool|WP_Error True on success, WP_Error on failure or if API request fails.
  */
 function phenixsync_sync_individual_location_professionals( $s3_index, $force_refresh = false ) {
+	if ( ! phenix_sync_is_enabled() ) {
+		error_log( 'Phenix Sync: Professional sync skipped (sync disabled).' );
+		return false;
+	}
+
 	if ( $force_refresh ) {
 		$transient_key = 'phenixsync_professionals_raw_response_' . (int) $s3_index;
 		delete_transient( $transient_key );
@@ -80,11 +96,34 @@ function phenixsync_sync_individual_location_professionals( $s3_index, $force_re
 	}
 
 	$php_array = phenixsync_professionals_get_php_array_from_raw_response( $raw_response );
+
+	if ( empty( $php_array ) || ! is_array( $php_array ) ) {
+		error_log( "phenixsync_sync_individual_location_professionals: Empty or invalid response for s3_index {$s3_index}. Skipping." );
+		return true;
+	}
+
+	if ( isset( $php_array['status'] ) ) {
+		$status = strtolower( trim( (string) $php_array['status'] ) );
+		error_log( "phenixsync_sync_individual_location_professionals: API status for s3_index {$s3_index}: {$status}" );
+		return true;
+	}
+
+	$professionals = array();
+	foreach ( $php_array as $professional ) {
+		if ( is_array( $professional ) && isset( $professional['S3_tenantID'] ) ) {
+			$professionals[] = $professional;
+		}
+	}
+
+	if ( empty( $professionals ) ) {
+		error_log( "phenixsync_sync_individual_location_professionals: No valid professionals found for s3_index {$s3_index}. Skipping." );
+		return true;
+	}
 	
 	// Remove professionals that no longer exist in the API response for this location
-	phenixsync_remove_deleted_professionals( $php_array, $s3_index );
+	phenixsync_remove_deleted_professionals( $professionals, $s3_index );
 	
-	foreach( $php_array as $professional ) {
+	foreach( $professionals as $professional ) {
 		$post_id = phenixsync_professionals_maybe_create_post( $professional );
 		
 		if ( ! $post_id || is_wp_error( $post_id ) ) {
@@ -130,6 +169,14 @@ add_action( 'rest_api_init', 'phenixsync_register_sync_professionals_by_location
 function phenixsync_rest_sync_professionals_by_location_callback( WP_REST_Request $request ) {
 	
 	$s3_location_id = $request->get_param( 's3_location_id' );
+
+	if ( ! phenix_sync_is_enabled() ) {
+		return new WP_Error(
+			'sync_disabled',
+			'Sync is disabled in settings.',
+			array( 'status' => 403 )
+		);
+	}
 
 	// Rate Limiting: Check if this s3_location_id has been processed recently
 	$rate_limit_transient_key = 'phenixsync_pro_loc_ratelimit_' . sanitize_key( $s3_location_id );
@@ -241,7 +288,7 @@ function phenixsync_professionals_loop_through_locations_and_get_s3_location_ids
  * @return string API response or error message.
  */
 function phenixsync_professionals_api_request( $s3_index ) {
-	$api_url       = 'https://utility24.salonsuitesolutions.com/utilities/phenix_portal_sender.aspx';
+	$api_url       = 'https://admin.ginasplatform.com/utilities/phenix_portal_sender.aspx';
 	$transient_key = 'phenixsync_professionals_raw_response_' . (int) $s3_index;
 	$cache_duration = 2 * HOUR_IN_SECONDS;
 	
@@ -436,8 +483,8 @@ function phenixsync_professionals_maybe_create_post( $professional ) {
  * @return  [type]                 [return description]
  */
 function phenixsync_professionals_update_post( $professional, $post_id ) {
-	
-	$suites = $professional['suites'];
+	$suites_string = '';
+	$suites = isset( $professional['suites'] ) ? $professional['suites'] : array();
 	if ( $suites && is_array( $suites ) ) {
 		$suite_names = array();
 		
@@ -633,6 +680,10 @@ function phenixsync_ajax_sync_professional() {
 	if ( ! current_user_can( 'manage_options' ) ) {
 		wp_die( 'Insufficient permissions' );
 	}
+
+	if ( ! phenix_sync_is_enabled() ) {
+		wp_send_json_error( 'Sync is disabled in settings.' );
+	}
 	
 	$post_id = intval( $_POST['post_id'] );
 	$location_id = sanitize_text_field( $_POST['location_id'] );
@@ -660,6 +711,10 @@ function phenixsync_ajax_sync_location() {
 	// Check user capabilities
 	if ( ! current_user_can( 'manage_options' ) ) {
 		wp_die( 'Insufficient permissions' );
+	}
+
+	if ( ! phenix_sync_is_enabled() ) {
+		wp_send_json_error( 'Sync is disabled in settings.' );
 	}
 	
 	$post_id = intval( $_POST['post_id'] );

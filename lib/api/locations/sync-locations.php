@@ -6,6 +6,12 @@
  * @return void
  */
 function phenixsync_schedule_locations_sync() {
+	if ( ! phenix_sync_is_enabled() ) {
+		wp_clear_scheduled_hook( 'phenixsync_locations_cron_hook' );
+		wp_clear_scheduled_hook( 'phenixsync_do_process_batch' );
+		return;
+	}
+
 	if ( ! wp_next_scheduled( 'phenixsync_locations_cron_hook' ) ) {
 		wp_schedule_event( time(), 'daily', 'phenixsync_locations_cron_hook' );
 	}
@@ -18,8 +24,18 @@ add_action( 'wp', 'phenixsync_schedule_locations_sync' );
  * @return void
  */
 function phenixsync_locations_sync_init() {
+	if ( ! phenix_sync_is_enabled() ) {
+		error_log( 'Phenix Sync: Locations sync init skipped (sync disabled).' );
+		return;
+	}
+
 	$raw_response = phenixsync_locations_api_request( null );
 	$locations_array = phenixsync_locations_json_to_php_array( $raw_response );
+
+	if ( empty( $locations_array ) || ! is_array( $locations_array ) ) {
+		error_log( 'Phenix Sync: Locations sync init received empty or invalid response. Skipping.' );
+		return;
+	}
 	
 	// from the locations array, we need to get all of the locations S3_index values, and put those into a new array.
 	$locations_s3_indices = array_column( $locations_array, 'S3_index' );
@@ -134,6 +150,11 @@ function phenixsync_remove_orphaned_tenants( $locations_s3_indices ) {
  * @return void
  */
 function phenixsync_process_batch( $offset ) {
+	if ( ! phenix_sync_is_enabled() ) {
+		error_log( 'Phenix Sync: Batch processing skipped (sync disabled).' );
+		return;
+	}
+
 	$locations_array = get_transient( 'phenixsync_locations_data' );
 	if ( ! $locations_array ) {
 		error_log('Phenix Sync: Locations data transient not found in phenixsync_process_batch.');
@@ -206,12 +227,20 @@ add_action( 'phenixsync_do_process_batch', 'phenixsync_process_batch' );
  * @return bool True on successful sync attempt, false otherwise.
  */
 function phenixsync_single_location_sync( $S3_index ) {
+	if ( ! phenix_sync_is_enabled() ) {
+		error_log( 'Phenix Sync: Single location sync skipped (sync disabled).' );
+		return false;
+	}
 	
 	// clear the transient first for phenixsync_locations_data
 	delete_transient( 'phenixsync_locations_data_' . $S3_index );
 	
 	$raw_response = phenixsync_locations_api_request( $S3_index);
 	$locations_array = phenixsync_locations_json_to_php_array( $raw_response );
+	if ( empty( $locations_array ) || ! is_array( $locations_array ) ) {
+		error_log( "Phenix Sync: No location data returned for S3_index {$S3_index}. Skipping single sync." );
+		return false;
+	}
 		
 	// Store the locations array in a transient
 	set_transient( 'phenixsync_locations_data_' . $S3_index, $locations_array, HOUR_IN_SECONDS );
@@ -244,7 +273,7 @@ function phenixsync_single_location_sync( $S3_index ) {
 function phenixsync_locations_api_request( $s3_index ) {
 	
 	$password = phenix_sync_get_api_password();
-	$base_url = 'https://utility24.salonsuitesolutions.com/utilities/phenix_portal_locations_sender.aspx';
+	$base_url = 'https://admin.ginasplatform.com/utilities/phenix_portal_locations_sender.aspx';
 	
 	// build the API url with the base URL and password.
 	$api_url = add_query_arg( 'password', $password, $base_url );
@@ -324,7 +353,7 @@ function phenixsync_locations_api_request( $s3_index ) {
 		}
 
 		if ( ! empty( $resync_location_index ) ) {
-			$resync_base = 'https://utility24.salonsuitesolutions.com/utilities/phenix_website_resync.aspx';
+			$resync_base = 'https://admin.ginasplatform.com/utilities/phenix_website_resync.aspx';
 			$resync_url  = add_query_arg( 'location_index', $resync_location_index, $resync_base );
 			$message    .= "\n\nResync URL: {$resync_url}";
 		}
@@ -364,7 +393,7 @@ function phenixsync_locations_json_to_php_array($raw_response) {
 	// Check for error responses
 	if (strpos($raw_response, "Error:") === 0 || strpos($raw_response, "Request failed") === 0) {
 		error_log('API request failed, cannot decode JSON. Response: ' . $raw_response);
-		return array('error' => 'API request failed: ' . $raw_response);
+		return array();
 	}
 
 	$response_php_array = json_decode($raw_response, true);
@@ -372,11 +401,14 @@ function phenixsync_locations_json_to_php_array($raw_response) {
 	if (json_last_error() !== JSON_ERROR_NONE) {
 		$json_error_message = json_last_error_msg();
 		error_log('JSON decode error: ' . $json_error_message . ' - Raw response: ' . substr($raw_response, 0, 500) . '...');
-		return array('error' => 'Failed to decode JSON: ' . $json_error_message);
+		return array();
 	}
 
 	if (!isset($response_php_array['locations']) || !is_array($response_php_array['locations'])) {
-		return;
+		if ( isset( $response_php_array['status'] ) ) {
+			error_log( 'Phenix Sync: Locations API status response: ' . $response_php_array['status'] );
+		}
+		return array();
 	}
 
 	$locations = $response_php_array['locations'];
@@ -643,6 +675,10 @@ function phenixsync_rest_sync_single_location_callback( WP_REST_Request $request
 
 	if ( empty( $S3_index ) ) {
 		return new WP_REST_Response( array( 'message' => 'S3_index parameter is required.' ), 400 );
+	}
+
+	if ( ! phenix_sync_is_enabled() ) {
+		return new WP_REST_Response( array( 'message' => 'Sync is disabled in settings.' ), 403 );
 	}
 
 	// Rate limiting: Check if a request for this S3_index was made in the last 5 seconds

@@ -1,3 +1,11 @@
+## 0.7
+
+- Updated from utility24 to admin.ginasplatform.com
+- Added sync enable toggle (default on) with admin error notice and disabled sync buttons when off.
+- Prevented sync processing when disabled and cleared relevant scheduled hooks.
+- Added editable location meta fields and warning notice on location edit screens.
+- Hardened API sync handling for hidden/empty responses and fixed suites string warning.
+
 ## 0.6.4
 
 - Adding SEOPress variables to the single-locations.php template.

@@ -57,7 +57,7 @@ function phenix_professionals_custom_column_content( $column, $post_id ) {
             $s3_location_id = get_post_meta( $post_id, 's3_location_id', true );
             if ( $s3_location_id ) {
                 $password = phenix_sync_get_api_password();
-                $base_url = 'https://utility24.salonsuitesolutions.com/utilities/phenix_portal_sender.aspx';
+                $base_url = 'https://admin.ginasplatform.com/utilities/phenix_portal_sender.aspx';
                 $api_url = add_query_arg( array(
                     'password' => $password,
                     'unique_string' => date('YmdHis'),
@@ -71,7 +71,11 @@ function phenix_professionals_custom_column_content( $column, $post_id ) {
         case 'sync':
             $s3_location_id = get_post_meta( $post_id, 's3_location_id', true );
             if ( $s3_location_id ) {
-                echo '<button type="button" class="button button-small sync-professional-btn" data-location-id="' . esc_attr( $s3_location_id ) . '" data-post-id="' . esc_attr( $post_id ) . '">Sync Now</button>';
+                $sync_enabled = phenix_sync_is_enabled();
+                $disabled_attr = $sync_enabled ? '' : ' disabled="disabled"';
+                $title_attr = $sync_enabled ? '' : ' title="Sync is disabled in settings."';
+                $label = $sync_enabled ? 'Sync Now' : 'Sync Disabled';
+                echo '<button type="button" class="button button-small sync-professional-btn"' . $disabled_attr . $title_attr . ' data-location-id="' . esc_attr( $s3_location_id ) . '" data-post-id="' . esc_attr( $post_id ) . '">' . esc_html( $label ) . '</button>';
             } else {
                 echo '-';
             }

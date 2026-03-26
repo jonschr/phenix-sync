@@ -97,7 +97,7 @@ function phenixsync_sync_individual_location_professionals( $s3_index, $force_re
 
 	$php_array = phenixsync_professionals_get_php_array_from_raw_response( $raw_response );
 
-	if ( empty( $php_array ) || ! is_array( $php_array ) ) {
+	if ( ! is_array( $php_array ) ) {
 		error_log( "phenixsync_sync_individual_location_professionals: Empty or invalid response for s3_index {$s3_index}. Skipping." );
 		return true;
 	}
@@ -105,6 +105,11 @@ function phenixsync_sync_individual_location_professionals( $s3_index, $force_re
 	if ( isset( $php_array['status'] ) ) {
 		$status = strtolower( trim( (string) $php_array['status'] ) );
 		error_log( "phenixsync_sync_individual_location_professionals: API status for s3_index {$s3_index}: {$status}" );
+		return true;
+	}
+
+	if ( ! phenixsync_is_sequential_array( $php_array ) ) {
+		error_log( "phenixsync_sync_individual_location_professionals: Unexpected non-list response for s3_index {$s3_index}. Skipping deletion." );
 		return true;
 	}
 
@@ -116,7 +121,13 @@ function phenixsync_sync_individual_location_professionals( $s3_index, $force_re
 	}
 
 	if ( empty( $professionals ) ) {
-		error_log( "phenixsync_sync_individual_location_professionals: No valid professionals found for s3_index {$s3_index}. Skipping." );
+		if ( empty( $php_array ) ) {
+			error_log( "phenixsync_sync_individual_location_professionals: API returned an authoritative empty professionals list for s3_index {$s3_index}. Removing all associated professionals." );
+			phenixsync_remove_all_professionals_for_location( $s3_index );
+			return true;
+		}
+
+		error_log( "phenixsync_sync_individual_location_professionals: No valid professionals found for s3_index {$s3_index}. Skipping deletion." );
 		return true;
 	}
 	
@@ -347,7 +358,7 @@ function phenixsync_professionals_api_request( $s3_index ) {
 	}
 	
 	// save some details about how this sync went.
-	phenix_save_pros_sync_details_to_location( $response, $s3_index );
+	phenix_save_pros_sync_details_to_location( $response, $s3_index, $result );
 
 	return $result;
 }
@@ -383,7 +394,7 @@ function phenixsync_process_gallery_data( $gallery_data ) {
 	return $processed_gallery;
 }
 
-function phenix_save_pros_sync_details_to_location( $response, $s3_index ) {
+function phenix_save_pros_sync_details_to_location( $response, $s3_index, $raw_response = '' ) {
 	// use the $s3_index to get the location post ID.
 	$args = array(
 		'post_type'      => 'locations',
@@ -398,15 +409,22 @@ function phenix_save_pros_sync_details_to_location( $response, $s3_index ) {
 	$location_post_id = $posts[0]->ID;
 	
 	// get the response code and body
-	$response_code = wp_remote_retrieve_response_code( $response );
-	$response_body = wp_remote_retrieve_body( $response );
+	$response_code = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
+	$response_body = is_string( $raw_response ) ? $raw_response : '';
+
+	if ( '' === $response_body && ! is_wp_error( $response ) ) {
+		$response_body = wp_remote_retrieve_body( $response );
+	}
 
 	// get the response time from our perspective
 	$response_time = date( 'Y-m-d H:i:s' );
 	// get the response size
-	$response_size = wp_remote_retrieve_header( $response, 'Content-Length' );
+	$response_size = is_wp_error( $response ) ? '' : wp_remote_retrieve_header( $response, 'Content-Length' );
+	if ( empty( $response_size ) && is_string( $response_body ) ) {
+		$response_size = strlen( $response_body );
+	}
 	// get the response date
-	$response_date = wp_remote_retrieve_header( $response, 'Date' );
+	$response_date = is_wp_error( $response ) ? '' : wp_remote_retrieve_header( $response, 'Date' );
 
 	// get the existing details from the location post meta (we'll call this 'professionals_sync_details')
 	$existing_details = get_post_meta( $location_post_id, 'professionals_sync_details', true );
@@ -421,11 +439,16 @@ function phenix_save_pros_sync_details_to_location( $response, $s3_index ) {
 	// save the response details to the location post meta. I'd like to insert this at the beginning of the array.
 	$details = array(
 		'response_code'        => $response_code,
-		// 'response_body'        => $response_body,
 		'response_time'        => $response_time,
 		'response_size'        => $response_size,
 		'response_date'        => $response_date,
 	);
+
+	if ( is_wp_error( $response ) ) {
+		$details['request_error'] = $response->get_error_message();
+	}
+
+	$details = array_merge( $details, phenixsync_get_professionals_response_debug_summary( $response_body ) );
 	
 	// add this to the beginning of the array
 	array_unshift( $existing_details, $details );
@@ -440,16 +463,146 @@ function phenix_save_pros_sync_details_to_location( $response, $s3_index ) {
 	
 }
 
+/**
+ * Build a compact debug summary for a professionals API response.
+ *
+ * @param string $raw_response The raw API response body.
+ * @return array
+ */
+function phenixsync_get_professionals_response_debug_summary( $raw_response ) {
+	$raw_response = is_string( $raw_response ) ? $raw_response : '';
+	$preview_limit = 5000;
+	$preview = $raw_response;
+
+	if ( strlen( $preview ) > $preview_limit ) {
+		$preview = substr( $preview, 0, $preview_limit ) . "\n...[truncated]";
+	}
+
+	$summary = array(
+		'response_shape'      => 'empty_string',
+		'raw_response_length' => strlen( $raw_response ),
+		'raw_response_preview'=> $preview,
+		'list_count'          => 0,
+		'professional_count'  => 0,
+		'is_empty_list'       => false,
+		'api_status'          => '',
+		'top_level_keys'      => array(),
+		'json_error'          => '',
+	);
+
+	if ( '' === trim( $raw_response ) ) {
+		return $summary;
+	}
+
+	if ( strpos( $raw_response, 'Error:' ) === 0 || strpos( $raw_response, 'Request failed with status code:' ) === 0 ) {
+		$summary['response_shape'] = 'error_string';
+		return $summary;
+	}
+
+	$decoded = json_decode( $raw_response, true );
+
+	if ( json_last_error() !== JSON_ERROR_NONE ) {
+		$summary['response_shape'] = 'invalid_json';
+		$summary['json_error'] = json_last_error_msg();
+		return $summary;
+	}
+
+	$redacted_preview = phenixsync_redact_sensitive_debug_data( $decoded );
+	$preview = wp_json_encode( $redacted_preview, JSON_PRETTY_PRINT );
+	if ( ! is_string( $preview ) || '' === $preview ) {
+		$preview = $raw_response;
+	}
+
+	if ( strlen( $preview ) > $preview_limit ) {
+		$preview = substr( $preview, 0, $preview_limit ) . "\n...[truncated]";
+	}
+
+	$summary['raw_response_preview'] = $preview;
+
+	if ( ! is_array( $decoded ) ) {
+		$summary['response_shape'] = gettype( $decoded );
+		return $summary;
+	}
+
+	if ( phenixsync_is_sequential_array( $decoded ) ) {
+		$summary['response_shape'] = 'json_list';
+		$summary['list_count'] = count( $decoded );
+		$summary['is_empty_list'] = empty( $decoded );
+
+		foreach ( $decoded as $professional ) {
+			if ( is_array( $professional ) && isset( $professional['S3_tenantID'] ) ) {
+				$summary['professional_count']++;
+			}
+		}
+
+		return $summary;
+	}
+
+	$summary['response_shape'] = 'json_object';
+	$summary['top_level_keys'] = array_slice( array_keys( $decoded ), 0, 20 );
+
+	if ( isset( $decoded['status'] ) ) {
+		$summary['api_status'] = (string) $decoded['status'];
+	}
+
+	return $summary;
+}
+
+/**
+ * Redact sensitive fields before saving API debug previews.
+ *
+ * @param mixed $value The decoded API response value.
+ * @return mixed
+ */
+function phenixsync_redact_sensitive_debug_data( $value ) {
+	if ( ! is_array( $value ) ) {
+		return $value;
+	}
+
+	$redacted = array();
+
+	foreach ( $value as $key => $item ) {
+		if ( 'password' === (string) $key ) {
+			$redacted[ $key ] = '[redacted]';
+			continue;
+		}
+
+		$redacted[ $key ] = phenixsync_redact_sensitive_debug_data( $item );
+	}
+
+	return $redacted;
+}
+
 function phenixsync_professionals_get_php_array_from_raw_response( $raw_response ) {
 	$php_array = json_decode( $raw_response, true );
 
 	if ( json_last_error() !== JSON_ERROR_NONE ) {
 		error_log( 'JSON decode error: ' . json_last_error_msg() );
-		return array();
+		return null;
 	}
 
 	return $php_array;
 	
+}
+
+/**
+ * Determine whether an array uses sequential numeric keys starting at zero.
+ *
+ * @param mixed $array The value to inspect.
+ * @return bool
+ */
+function phenixsync_is_sequential_array( $array ) {
+	if ( ! is_array( $array ) ) {
+		return false;
+	}
+
+	if ( empty( $array ) ) {
+		return true;
+	}
+
+	$expected_keys = range( 0, count( $array ) - 1 );
+
+	return array_keys( $array ) === $expected_keys;
 }
 
 function phenixsync_professionals_maybe_create_post( $professional ) {
@@ -665,6 +818,38 @@ function phenixsync_remove_deleted_professionals( $professionals_array, $s3_loca
 		$deleted_count = count( $professionals_to_delete );
 		error_log( "phenixsync_remove_deleted_professionals: Deleted {$deleted_count} professionals for s3_location_id {$s3_location_id}" );
 	}
+}
+
+/**
+ * Remove all professionals associated with a specific location.
+ *
+ * @param string|int $s3_location_id The S3 location ID to remove professionals for.
+ * @return void
+ */
+function phenixsync_remove_all_professionals_for_location( $s3_location_id ) {
+	$args = array(
+		'post_type'      => 'professionals',
+		'posts_per_page' => -1,
+		'post_status'    => 'any',
+		'fields'         => 'ids',
+		'meta_query'     => array(
+			array(
+				'key'   => 's3_location_id',
+				'value' => $s3_location_id,
+			),
+		),
+	);
+
+	$professionals_to_delete = get_posts( $args );
+
+	foreach ( $professionals_to_delete as $post_id ) {
+		$tenant_id = get_post_meta( $post_id, 's3_tenant_id', true );
+		wp_delete_post( $post_id, true );
+		error_log( "phenixsync_remove_all_professionals_for_location: Deleted professional post ID {$post_id} with s3_tenant_id {$tenant_id} for s3_location_id {$s3_location_id}" );
+	}
+
+	$deleted_count = count( $professionals_to_delete );
+	error_log( "phenixsync_remove_all_professionals_for_location: Deleted {$deleted_count} professionals for s3_location_id {$s3_location_id}" );
 }
 
 /**

@@ -6,6 +6,9 @@ jQuery(document).ready(function ($) {
 		var $button = $(this);
 		var postId = $button.data('post-id');
 		var locationId = $button.data('location-id');
+		var defaultText = $button.data('default-text') || $button.text();
+
+		$button.data('default-text', defaultText);
 
 		// Disable button and show loading state
 		$button.prop('disabled', true).text('Syncing...');
@@ -29,7 +32,7 @@ jQuery(document).ready(function ($) {
 					setTimeout(function () {
 						$button
 							.prop('disabled', false)
-							.text('Sync Now')
+							.text(defaultText)
 							.removeClass('button-success')
 							.addClass('button-secondary');
 					}, 2000);
@@ -52,6 +55,9 @@ jQuery(document).ready(function ($) {
 		var $button = $(this);
 		var postId = $button.data('post-id');
 		var s3Index = $button.data('s3-index');
+		var defaultText = $button.data('default-text') || $button.text();
+
+		$button.data('default-text', defaultText);
 
 		// Disable button and show loading state
 		$button.prop('disabled', true).text('Syncing...');
@@ -75,7 +81,7 @@ jQuery(document).ready(function ($) {
 					setTimeout(function () {
 						$button
 							.prop('disabled', false)
-							.text('Sync Now')
+							.text(defaultText)
 							.removeClass('button-success')
 							.addClass('button-secondary');
 					}, 2000);

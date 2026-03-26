@@ -1,3 +1,9 @@
+## 0.9
+
+- Added individual admin-side sync buttons on location and professional edit screens that reuse the existing location professionals sync path.
+- Fixed professionals deletion so an authoritative empty API array (`[]`) removes all professionals for that location without treating failed or malformed responses the same way.
+- Expanded professionals sync debug output to record response shape, counts, and a redacted response preview to make empty-array cases visible in the admin.
+
 ## 0.8
 
 - Added a manual "Run Locations Sync Now" button to the Phenix Sync settings page to trigger the full locations sync initialization flow on demand.

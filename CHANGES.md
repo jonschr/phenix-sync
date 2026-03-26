@@ -1,3 +1,7 @@
+## 0.8
+
+- Added a manual "Run Locations Sync Now" button to the Phenix Sync settings page to trigger the full locations sync initialization flow on demand.
+
 ## 0.7
 
 - Updated from utility24 to admin.ginasplatform.com

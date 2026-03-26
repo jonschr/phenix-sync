@@ -4,6 +4,8 @@
 add_action('admin_menu', 'phenix_sync_add_admin_menu');
 add_action('admin_init', 'phenix_sync_settings_init');
 add_action('admin_notices', 'phenix_sync_admin_notice_sync_disabled');
+add_action('admin_notices', 'phenixsync_admin_notice_locations_sync_triggered');
+add_action('admin_post_phenixsync_run_locations_sync', 'phenixsync_handle_run_locations_sync');
 
 function phenix_sync_add_admin_menu() {
 	add_options_page(
@@ -130,6 +132,16 @@ function phenix_sync_options_page() {
 			submit_button();
 			?>
 		</form>
+
+		<hr style="margin: 30px 0;">
+
+		<h2>Manual Location Sync</h2>
+		<p>Run the full locations sync immediately. This triggers the same initialization flow as the scheduled sync, including deletion checks for locations missing from the API response.</p>
+		<form action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" method="post">
+			<input type="hidden" name="action" value="phenixsync_run_locations_sync" />
+			<?php wp_nonce_field( 'phenixsync_run_locations_sync', 'phenixsync_run_locations_sync_nonce' ); ?>
+			<?php submit_button( 'Run Locations Sync Now', 'secondary', 'submit', false ); ?>
+		</form>
 		
 		<hr style="margin: 40px 0;">
 		
@@ -239,6 +251,51 @@ function phenix_sync_options_page() {
 		
 	</div>
 	<?php
+}
+
+function phenixsync_handle_run_locations_sync() {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_die( 'You are not allowed to perform this action.' );
+	}
+
+	check_admin_referer( 'phenixsync_run_locations_sync', 'phenixsync_run_locations_sync_nonce' );
+
+	$redirect_url = admin_url( 'options-general.php?page=phenix-sync' );
+
+	if ( ! phenix_sync_is_enabled() ) {
+		wp_safe_redirect( add_query_arg( 'phenixsync_locations_sync_status', 'disabled', $redirect_url ) );
+		exit;
+	}
+
+	phenixsync_locations_sync_init();
+
+	wp_safe_redirect( add_query_arg( 'phenixsync_locations_sync_status', 'started', $redirect_url ) );
+	exit;
+}
+
+function phenixsync_admin_notice_locations_sync_triggered() {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		return;
+	}
+
+	if ( ! isset( $_GET['page'] ) || 'phenix-sync' !== $_GET['page'] ) {
+		return;
+	}
+
+	if ( empty( $_GET['phenixsync_locations_sync_status'] ) ) {
+		return;
+	}
+
+	$status = sanitize_key( wp_unslash( $_GET['phenixsync_locations_sync_status'] ) );
+
+	if ( 'disabled' === $status ) {
+		echo '<div class="notice notice-error is-dismissible"><p>Locations sync was not run because sync is currently disabled.</p></div>';
+		return;
+	}
+
+	if ( 'started' === $status ) {
+		echo '<div class="notice notice-success is-dismissible"><p>Locations sync has been started.</p></div>';
+	}
 }
 
 function phenix_sync_admin_notice_sync_disabled() {

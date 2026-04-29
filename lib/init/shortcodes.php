@@ -242,6 +242,137 @@ function phenix_location_name_shortcode_func( $atts ) {
 }
 add_shortcode( 'phenix_location_name', 'phenix_location_name_shortcode_func' );
 
+/**
+ * Resolve the current location S3 index from shortcode context.
+ *
+ * @param string|null $s3_index Optional shortcode-provided S3 index.
+ * @return string|false
+ */
+function phenix_global_contact_get_s3_index( $s3_index = null ) {
+	if ( $s3_index ) {
+		return sanitize_text_field( $s3_index );
+	}
+
+	if ( is_singular( 'locations' ) ) {
+		$location_s3_index = get_post_meta( get_queried_object_id(), 's3_index', true );
+		if ( $location_s3_index ) {
+			return sanitize_text_field( $location_s3_index );
+		}
+	}
+
+	return phenix_get_page_related_s3_index();
+}
+
+/**
+ * Get all synced location tokens.
+ *
+ * @param int $limit Maximum number of location tokens to return. Use 0 for no limit.
+ * @return array
+ */
+function phenix_get_all_synced_location_tokens( $limit = 0 ) {
+	$limit = absint( $limit );
+
+	$meta_query = array(
+		array(
+			'key'     => 'location_token',
+			'value'   => '',
+			'compare' => '!=',
+		),
+	);
+
+	$synced_location_s3_ids = function_exists( 'phenix_sync_get_property_ids' ) ? phenix_sync_get_property_ids() : array();
+	if ( is_array( $synced_location_s3_ids ) && ! empty( $synced_location_s3_ids ) ) {
+		$meta_query[] = array(
+			'key'     => 's3_index',
+			'value'   => array_map( 'strval', $synced_location_s3_ids ),
+			'compare' => 'IN',
+		);
+	}
+
+	$locations = get_posts( array(
+		'post_type'      => 'locations',
+		'post_status'    => 'publish',
+		'posts_per_page' => $limit ? $limit : -1,
+		'fields'         => 'ids',
+		'meta_query'     => $meta_query,
+		'orderby'        => 'title',
+		'order'          => 'ASC',
+	) );
+
+	$tokens = array();
+	foreach ( $locations as $location_id ) {
+		$token = get_post_meta( $location_id, 'location_token', true );
+		if ( $token ) {
+			$tokens[] = sanitize_text_field( $token );
+		}
+	}
+
+	return array_values( array_unique( array_filter( $tokens ) ) );
+}
+
+/**
+ * Render the Find a Suite global contact widget script.
+ *
+ * Examples:
+ * [phenix_global_contact]
+ * [phenix_global_contact s3_index="123"]
+ * [phenix_global_contact ltok="token-one,token-two" redirect="https://example.com/thank-you/"]
+ *
+ * @param array $atts Shortcode attributes.
+ * @return string
+ */
+function phenix_global_contact_shortcode_func( $atts ) {
+	wp_enqueue_style(
+		'phenixsync-findasuite-widget',
+		PHENIX_SYNC_PATH . 'assets/css/findasuite-widget.css',
+		array(),
+		filemtime( PHENIX_SYNC_DIR . 'assets/css/findasuite-widget.css' )
+	);
+
+	$a = shortcode_atts( array(
+		's3_index'       => null,
+		'ltok'           => null,
+		'location_token' => null,
+		'redirect'       => null,
+	), $atts );
+
+	$tokens = array();
+	$token_override = ! empty( $a['ltok'] ) ? $a['ltok'] : $a['location_token'];
+
+	if ( $token_override ) {
+		$tokens = array_map( 'trim', explode( ',', $token_override ) );
+		$tokens = array_map( 'sanitize_text_field', $tokens );
+	} else {
+		$s3_index = phenix_global_contact_get_s3_index( $a['s3_index'] );
+
+		if ( $s3_index ) {
+			$location_token = phenix_get_location_meta_by_s3_index( $s3_index, 'location_token' );
+			if ( $location_token ) {
+				$tokens[] = sanitize_text_field( $location_token );
+			}
+		}
+
+		if ( empty( $tokens ) && ! $s3_index ) {
+			$tokens = phenix_get_all_synced_location_tokens( 20 );
+		}
+	}
+
+	$tokens = array_values( array_unique( array_filter( $tokens ) ) );
+	if ( empty( $tokens ) ) {
+		return '';
+	}
+
+	$redirect = $a['redirect'] ? esc_url_raw( $a['redirect'] ) : home_url( '/' );
+	$src = sprintf(
+		'https://www.findasuite.com/findasuite/findasuite_widget2.aspx?ltok=%s&redirect=%s',
+		implode( ',', array_map( 'rawurlencode', $tokens ) ),
+		$redirect
+	);
+
+	return sprintf( '<script language="javascript" src="%s"></script>', esc_url( $src ) );
+}
+add_shortcode( 'phenix_global_contact', 'phenix_global_contact_shortcode_func' );
+
 function phenix_location_professionals_shortcode_func( $atts ) {
 	$a = shortcode_atts( array(
 		's3_index' => null,

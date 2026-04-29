@@ -1,3 +1,11 @@
+## 1.1
+
+- Added the `[phenix_global_contact]` shortcode for rendering the Find a Suite global contact widget.
+- Added automatic location token resolution from explicit shortcode attributes, single location posts, page S3 index meta, or a capped generic fallback of up to 20 synced locations.
+- Added shortcode parameters for direct token overrides and redirect URL overrides, with the default redirect set to the current site home URL.
+- Added scoped frontend styling for the Find a Suite widget form, including paired name/email fields, full-width location dropdown support, CAPTCHA layout adjustments, consent box cleanup, and responsive behavior.
+- Documented the global contact widget shortcode on the Phenix Sync settings page.
+
 ## 0.9
 
 - Added individual admin-side sync buttons on location and professional edit screens that reuse the existing location professionals sync path.

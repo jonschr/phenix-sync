@@ -236,6 +236,21 @@ function phenix_sync_options_page() {
 				</ul>
 				<p><strong>Note:</strong> This shortcode outputs a complete professional grid with styling and will display all professionals assigned to the specified location.</p>
 			</div>
+
+			<div style="border: 1px solid #ddd; padding: 20px; border-radius: 5px; background: white;">
+				<h3 style="margin-top: 0;">Global Contact Widget</h3>
+				<p>Outputs the Find a Suite global contact widget script. If no location is specified, it uses the current location post's S3 index, then the current page's S3 index. If neither is available, it includes up to 20 synced location tokens.</p>
+				<h4>Examples:</h4>
+				<code style="background: #f1f1f1; padding: 5px; display: block; margin: 5px 0;">[phenix_global_contact]</code>
+				<code style="background: #f1f1f1; padding: 5px; display: block; margin: 5px 0;">[phenix_global_contact s3_index="123"]</code>
+				<code style="background: #f1f1f1; padding: 5px; display: block; margin: 5px 0;">[phenix_global_contact ltok="token-one,token-two" redirect="https://example.com/thank-you/"]</code>
+				<p><strong>Parameters:</strong></p>
+				<ul style="margin-bottom: 0;">
+					<li><code>s3_index</code> (optional) - The S3 index of the location whose token should be used</li>
+					<li><code>ltok</code> or <code>location_token</code> (optional) - One or more comma-separated location tokens to use directly</li>
+					<li><code>redirect</code> (optional) - The redirect URL; defaults to the current site home URL</li>
+				</ul>
+			</div>
 			
 		</div>
 		

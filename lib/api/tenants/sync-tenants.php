@@ -417,7 +417,7 @@ function phenix_save_pros_sync_details_to_location( $response, $s3_index, $raw_r
 	}
 
 	// get the response time from our perspective
-	$response_time = date( 'Y-m-d H:i:s' );
+	$response_time = current_time( 'mysql' );
 	// get the response size
 	$response_size = is_wp_error( $response ) ? '' : wp_remote_retrieve_header( $response, 'Content-Length' );
 	if ( empty( $response_size ) && is_string( $response_body ) ) {
@@ -440,6 +440,8 @@ function phenix_save_pros_sync_details_to_location( $response, $s3_index, $raw_r
 	$details = array(
 		'response_code'        => $response_code,
 		'response_time'        => $response_time,
+		'response_time_gmt'    => current_time( 'mysql', true ),
+		'response_timestamp'   => time(),
 		'response_size'        => $response_size,
 		'response_date'        => $response_date,
 	);
@@ -471,12 +473,7 @@ function phenix_save_pros_sync_details_to_location( $response, $s3_index, $raw_r
  */
 function phenixsync_get_professionals_response_debug_summary( $raw_response ) {
 	$raw_response = is_string( $raw_response ) ? $raw_response : '';
-	$preview_limit = 5000;
 	$preview = $raw_response;
-
-	if ( strlen( $preview ) > $preview_limit ) {
-		$preview = substr( $preview, 0, $preview_limit ) . "\n...[truncated]";
-	}
 
 	$summary = array(
 		'response_shape'      => 'empty_string',
@@ -508,16 +505,8 @@ function phenixsync_get_professionals_response_debug_summary( $raw_response ) {
 	}
 
 	$redacted_preview = phenixsync_redact_sensitive_debug_data( $decoded );
-	$preview = wp_json_encode( $redacted_preview, JSON_PRETTY_PRINT );
-	if ( ! is_string( $preview ) || '' === $preview ) {
-		$preview = $raw_response;
-	}
-
-	if ( strlen( $preview ) > $preview_limit ) {
-		$preview = substr( $preview, 0, $preview_limit ) . "\n...[truncated]";
-	}
-
-	$summary['raw_response_preview'] = $preview;
+	$summary['raw_response_preview']          = base64_encode( phenixsync_encode_debug_json_preview( $redacted_preview ) );
+	$summary['raw_response_preview_encoding'] = 'base64';
 
 	if ( ! is_array( $decoded ) ) {
 		$summary['response_shape'] = gettype( $decoded );

@@ -29,13 +29,9 @@ jQuery(document).ready(function ($) {
 						.text('Synced!')
 						.removeClass('button-secondary')
 						.addClass('button-success');
-					setTimeout(function () {
-						$button
-							.prop('disabled', false)
-							.text(defaultText)
-							.removeClass('button-success')
-							.addClass('button-secondary');
-					}, 2000);
+					window.setTimeout(function () {
+						window.location.reload();
+					}, 500);
 				} else {
 					$button.prop('disabled', false).text('Sync Failed');
 					alert('Sync failed: ' + (response.data || 'Unknown error'));
@@ -78,13 +74,9 @@ jQuery(document).ready(function ($) {
 						.text('Synced!')
 						.removeClass('button-secondary')
 						.addClass('button-success');
-					setTimeout(function () {
-						$button
-							.prop('disabled', false)
-							.text(defaultText)
-							.removeClass('button-success')
-							.addClass('button-secondary');
-					}, 2000);
+					window.setTimeout(function () {
+						window.location.reload();
+					}, 500);
 				} else {
 					$button.prop('disabled', false).text('Sync Failed');
 					alert('Sync failed: ' + (response.data || 'Unknown error'));

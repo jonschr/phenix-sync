@@ -160,7 +160,7 @@ function phenixsync_locations_edit_warning_notice() {
 	}
 
 	echo '<div class="notice notice-warning"><p>';
-	echo 'Changes made here will be overwritten on next sync. Please do not make changes to here. Those need to be made within Gina\'s Platform';
+	echo 'Location sync data is read-only here and is managed in Gina\'s Platform.';
 	echo '</p></div>';
 }
 add_action( 'admin_notices', 'phenixsync_locations_edit_warning_notice' );
@@ -172,93 +172,64 @@ add_action( 'admin_notices', 'phenixsync_locations_edit_warning_notice' );
  * @return void
  */
 function phenixsync_location_meta_fields_callback( $post ) {
-	wp_nonce_field( 'phenixsync_location_meta_fields', 'phenixsync_location_meta_fields_nonce' );
-
 	$fields = phenixsync_get_location_meta_fields();
+	$groups = array(
+		'Location' => array( 'location_name', 'phenix_franchise_license_index', 's3_index', 'suite_count', 'coming_soon', 'time_zone', 'direction' ),
+		'Address'  => array( 'address1', 'address2', 'city', 'state', 'zip', 'country', 'latitude', 'longitude' ),
+		'Contact'  => array( 'phone', 'phone_tree_number', 'two_way_texting_number', 'email', 'website_url' ),
+		'Images'   => array( 'landscape_url', 'image1_url', 'image2_url', 'image3_url', 'portrait_image_url', 'floor_plan_image_url' ),
+		'Social'   => array( 'facebook_url', 'instagram_url' ),
+		'System'   => array( 'location_token' ),
+	);
 
-	echo '<table class="form-table">';
+	echo '<p class="description">This data is provided by the location sync and cannot be edited from WordPress.</p>';
+	echo '<div class="phenixsync-location-meta-grid">';
 
-	foreach ( $fields as $key => $field ) {
-		$label = isset( $field['label'] ) ? $field['label'] : $key;
-		$type  = isset( $field['type'] ) ? $field['type'] : 'text';
-		$value = get_post_meta( $post->ID, $key, true );
-
-		$field_id = 'phenixsync_location_meta_' . $key;
-
-		echo '<tr>';
-		echo '<th scope="row"><label for="' . esc_attr( $field_id ) . '">' . esc_html( $label ) . '</label></th>';
-		echo '<td>';
-
-		$input_type = 'text';
-		if ( 'url' === $type ) {
-			$input_type = 'url';
+	foreach ( $groups as $group_label => $keys ) {
+		$items = array();
+		foreach ( $keys as $key ) {
+			if ( empty( $fields[ $key ] ) ) {
+				continue;
+			}
+			$value = get_post_meta( $post->ID, $key, true );
+			if ( '' === (string) $value ) {
+				continue;
+			}
+			$items[ $key ] = $value;
 		}
 
-		echo '<input type="' . esc_attr( $input_type ) . '" id="' . esc_attr( $field_id ) . '" name="phenixsync_location_meta[' . esc_attr( $key ) . ']" value="' . esc_attr( $value ) . '" class="regular-text" />';
-
-		if ( ! empty( $field['description'] ) ) {
-			echo '<p class="description">' . esc_html( $field['description'] ) . '</p>';
-		}
-
-		echo '</td>';
-		echo '</tr>';
-	}
-
-	echo '</table>';
-}
-
-/**
- * Save location meta fields.
- *
- * @param int $post_id The post ID.
- * @return void
- */
-function phenixsync_save_location_meta_fields( $post_id ) {
-	if ( ! isset( $_POST['phenixsync_location_meta_fields_nonce'] ) || ! wp_verify_nonce( $_POST['phenixsync_location_meta_fields_nonce'], 'phenixsync_location_meta_fields' ) ) {
-		return;
-	}
-
-	if ( ! current_user_can( 'edit_post', $post_id ) ) {
-		return;
-	}
-
-	if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
-		return;
-	}
-
-	if ( wp_is_post_revision( $post_id ) ) {
-		return;
-	}
-
-	if ( get_post_type( $post_id ) !== 'locations' ) {
-		return;
-	}
-
-	$posted = isset( $_POST['phenixsync_location_meta'] ) && is_array( $_POST['phenixsync_location_meta'] ) ? $_POST['phenixsync_location_meta'] : array();
-	$fields = phenixsync_get_location_meta_fields();
-
-	foreach ( $fields as $key => $field ) {
-		if ( ! array_key_exists( $key, $posted ) ) {
+		if ( empty( $items ) ) {
 			continue;
 		}
 
-		$value = sanitize_text_field( $posted[ $key ] );
-		update_post_meta( $post_id, $key, $value );
+		echo '<section class="phenixsync-location-meta-group"><h3>' . esc_html( $group_label ) . '</h3><dl>';
+		foreach ( $items as $key => $value ) {
+			$field = $fields[ $key ];
+			$label = isset( $field['label'] ) ? $field['label'] : $key;
+			echo '<dt>' . esc_html( $label ) . '</dt><dd>';
+			if ( phenixsync_is_location_image_meta_field( $key ) ) {
+				echo '<a class="phenixsync-location-image-link" href="' . esc_url( $value ) . '" target="_blank" rel="noopener noreferrer">';
+				echo '<img class="phenixsync-location-image-preview" src="' . esc_url( $value ) . '" alt="' . esc_attr( $label ) . ' preview" loading="lazy" />';
+				echo '</a>';
+				echo '<a href="' . esc_url( $value ) . '" target="_blank" rel="noopener noreferrer">Open full image</a>';
+			} elseif ( isset( $field['type'] ) && 'url' === $field['type'] ) {
+				echo '<a href="' . esc_url( $value ) . '" target="_blank" rel="noopener noreferrer">' . esc_html( $value ) . '</a>';
+			} else {
+				echo esc_html( $value );
+			}
+			echo '</dd>';
+		}
+		echo '</dl></section>';
 	}
 
-	if ( array_key_exists( 'location_name', $posted ) ) {
-		$location_name = sanitize_text_field( $posted['location_name'] );
-		if ( $location_name !== '' ) {
-			$current_title = get_post_field( 'post_title', $post_id );
-			if ( $current_title !== $location_name ) {
-				remove_action( 'save_post', 'phenixsync_save_location_meta_fields' );
-				wp_update_post( array(
-					'ID'         => $post_id,
-					'post_title' => $location_name,
-				) );
-				add_action( 'save_post', 'phenixsync_save_location_meta_fields' );
-			}
-		}
-	}
+	echo '</div>';
 }
-add_action( 'save_post', 'phenixsync_save_location_meta_fields' );
+
+/** Determine whether a synced location meta key contains an image URL. */
+function phenixsync_is_location_image_meta_field( $key ) {
+	return in_array(
+		$key,
+		array( 'landscape_url', 'image1_url', 'image2_url', 'image3_url', 'portrait_image_url', 'floor_plan_image_url' ),
+		true
+	);
+}

@@ -1,3 +1,12 @@
+## 1.2
+
+- Added individual location sync controls to location edit screens and reload the admin screen after a successful location or professionals sync.
+- Added a Location Sync Debug panel alongside the existing Professionals Sync Debug panel, with the latest 10 responses retained for each sync type.
+- Reworked sync debug into readable tables and modal response viewers with local-time timestamps, syntax highlighting, nested JSON expansion, and expand/collapse-all controls.
+- Store full, redacted debug payloads in a storage-safe format so large location and professionals API responses remain available for the foldable viewer.
+- Made location sync meta read-only, grouped it into compact cards, and added previews for synced image URLs.
+- Added professional edit-screen panels for the associated location, current synced professional data, profile image, and a link to the location's sync history.
+
 ## 1.1
 
 - Added the `[phenix_global_contact]` shortcode for rendering the Find a Suite global contact widget.

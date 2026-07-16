@@ -8,7 +8,7 @@
 function phenixsync_add_individual_sync_meta_boxes() {
 	add_meta_box(
 		'phenixsync_location_professionals_sync',
-		'Sync Location Professionals',
+		'Sync Professionals',
 		'phenixsync_render_location_professionals_sync_meta_box',
 		'locations',
 		'side',
@@ -16,8 +16,17 @@ function phenixsync_add_individual_sync_meta_boxes() {
 	);
 
 	add_meta_box(
+		'phenixsync_location_sync',
+		'Sync This Location',
+		'phenixsync_render_location_sync_meta_box',
+		'locations',
+		'side',
+		'low'
+	);
+
+	add_meta_box(
 		'phenixsync_professional_location_sync',
-		'Sync Location Professionals',
+		'Sync Professionals',
 		'phenixsync_render_professional_location_sync_meta_box',
 		'professionals',
 		'side',
@@ -40,6 +49,33 @@ function phenixsync_render_location_professionals_sync_meta_box( $post ) {
 		$s3_index,
 		'Run the professionals sync for this location using its current S3 index.'
 	);
+}
+
+/** Render the single-location sync control directly below the professionals sync control. */
+function phenixsync_render_location_sync_meta_box( $post ) {
+	$s3_index     = get_post_meta( $post->ID, 's3_index', true );
+	$sync_enabled = phenix_sync_is_enabled();
+
+	if ( empty( $s3_index ) ) {
+		echo '<p>This location does not have an S3 index available for syncing.</p>';
+		return;
+	}
+
+	$disabled_attr = $sync_enabled ? '' : ' disabled="disabled"';
+	$title_attr    = $sync_enabled ? '' : ' title="Sync is disabled in settings."';
+	$label         = $sync_enabled ? 'Sync This Location' : 'Sync Disabled';
+
+	printf(
+		'<p><button type="button" class="button button-secondary sync-location-btn"%1$s%2$s data-s3-index="%3$s" data-post-id="%4$d">%5$s</button></p>',
+		$disabled_attr,
+		$title_attr,
+		esc_attr( $s3_index ),
+		(int) $post->ID,
+		esc_html( $label )
+	);
+
+	echo '<p>Refresh this location\'s synced data and record a new location sync debug entry.</p>';
+	echo '<p><strong>Location S3 Index:</strong> ' . esc_html( $s3_index ) . '</p>';
 }
 
 /**
@@ -76,7 +112,7 @@ function phenixsync_render_location_professionals_sync_button( $post_id, $locati
 
 	$disabled_attr = $sync_enabled ? '' : ' disabled="disabled"';
 	$title_attr    = $sync_enabled ? '' : ' title="Sync is disabled in settings."';
-	$label         = $sync_enabled ? 'Sync Professionals For This Location' : 'Sync Disabled';
+	$label         = $sync_enabled ? 'Sync Professionals' : 'Sync Disabled';
 
 	printf(
 		'<p><button type="button" class="button button-secondary sync-professional-btn"%1$s%2$s data-location-id="%3$s" data-post-id="%4$d">%5$s</button></p>',

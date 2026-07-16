@@ -11,81 +11,163 @@ function phenix_add_professionals_sync_information_to_locations() {
 		'normal',
 		'high'
 	);
+
+	add_meta_box(
+		'phenix_locations_sync_debug_information',
+		'Location Sync Debug Information',
+		'phenix_locations_sync_debug_information_callback',
+		'locations',
+		'normal',
+		'high'
+	);
 }
 add_action( 'add_meta_boxes', 'phenix_add_professionals_sync_information_to_locations' );
 
-function phenix_professionals_info_on_locations_callback() {
-	global $post;
+/** Encode a debug payload as valid, pretty JSON for the foldable response viewer. */
+function phenixsync_encode_debug_json_preview( $payload ) {
+	$flags = JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE;
+	$preview = wp_json_encode( $payload, $flags );
 
-	// Get the current value.
-	$professionals_sync_details = get_post_meta( $post->ID, 'professionals_sync_details', true );
-	$permalink = get_the_permalink( $post->ID );
-
-	// get the s3_index value for this location
-	$s3_index = get_post_meta( $post->ID, 's3_index', true );
-	
-	// we need to show this as an array, so let's loop through it.
-	printf( '<h3>Professionals sync debug: s3_index %s</h3>', $s3_index );
-	
-	// printf( '<p><a href="%s?sync=%s" target="_blank">Resync professionals for this location</a> (note: this can take up to 1 minute).', $permalink, $s3_index );
-	
-	if ( $professionals_sync_details && is_array( $professionals_sync_details[0] ) ) {
-		
-		$last_code = $professionals_sync_details[0]['response_code'];
-		$last_time = $professionals_sync_details[0]['response_time'];
-		$last_shape = isset( $professionals_sync_details[0]['response_shape'] ) ? $professionals_sync_details[0]['response_shape'] : '';
-		$last_count = isset( $professionals_sync_details[0]['professional_count'] ) ? $professionals_sync_details[0]['professional_count'] : '';
-		$last_status = isset( $professionals_sync_details[0]['api_status'] ) ? $professionals_sync_details[0]['api_status'] : '';
-		$last_empty_list = ! empty( $professionals_sync_details[0]['is_empty_list'] ) ? 'yes' : 'no';
-			
-		printf(
-			'<p>Last response code: %s<br/>Last response time: %s<br/>Last response shape: %s<br/>Last professional count: %s<br/>Last empty list: %s%s</p>',
-			esc_html( '' !== (string) $last_code ? (string) $last_code : 'n/a' ),
-			esc_html( $last_time ? $last_time : 'n/a' ),
-			esc_html( $last_shape ? $last_shape : 'n/a' ),
-			esc_html( '' !== (string) $last_count ? (string) $last_count : 'n/a' ),
-			esc_html( $last_empty_list ),
-			$last_status ? '<br/>Last API status: ' . esc_html( $last_status ) : ''
-		);
-				
-		foreach ( $professionals_sync_details as $request ) {
-
-			printf( '<details><summary>Request %s</summary>', esc_html( $request['response_time'] ) );
-				echo '<p>';
-				printf( '<strong>Response code:</strong> %s<br/>', esc_html( isset( $request['response_code'] ) ? $request['response_code'] : '' ) );
-				printf( '<strong>Response shape:</strong> %s<br/>', esc_html( isset( $request['response_shape'] ) ? $request['response_shape'] : 'n/a' ) );
-				printf( '<strong>Professional count:</strong> %s<br/>', esc_html( isset( $request['professional_count'] ) ? $request['professional_count'] : '0' ) );
-				printf( '<strong>List count:</strong> %s<br/>', esc_html( isset( $request['list_count'] ) ? $request['list_count'] : '0' ) );
-				printf( '<strong>Empty list:</strong> %s<br/>', ! empty( $request['is_empty_list'] ) ? 'yes' : 'no' );
-				printf( '<strong>Response size:</strong> %s<br/>', esc_html( isset( $request['response_size'] ) ? $request['response_size'] : '' ) );
-				if ( ! empty( $request['api_status'] ) ) {
-					printf( '<strong>API status:</strong> %s<br/>', esc_html( $request['api_status'] ) );
-				}
-				if ( ! empty( $request['request_error'] ) ) {
-					printf( '<strong>Request error:</strong> %s<br/>', esc_html( $request['request_error'] ) );
-				}
-				if ( ! empty( $request['json_error'] ) ) {
-					printf( '<strong>JSON error:</strong> %s<br/>', esc_html( $request['json_error'] ) );
-				}
-				if ( ! empty( $request['top_level_keys'] ) && is_array( $request['top_level_keys'] ) ) {
-					printf( '<strong>Top-level keys:</strong> %s<br/>', esc_html( implode( ', ', $request['top_level_keys'] ) ) );
-				}
-				echo '</p>';
-
-				if ( array_key_exists( 'raw_response_preview', $request ) ) {
-					echo '<h4 style="margin-bottom: 6px;">Response Preview</h4>';
-					echo '<pre style="white-space: pre-wrap; max-height: 320px; overflow: auto;">';
-					echo esc_html( $request['raw_response_preview'] );
-					echo '</pre>';
-				}
-
-				echo '<h4 style="margin-bottom: 6px;">Stored Debug Payload</h4>';
-				echo '<pre>';
-				print_r( $request );
-				echo '</pre>';
-			
-			echo '</details>';
-
-		}
+	if ( is_string( $preview ) && '' !== $preview ) {
+		return $preview;
 	}
+
+	// Preserve a valid JSON document even if an unexpected value cannot be encoded.
+	return '{"debug_error":"The response preview could not be encoded."}';
+}
+
+function phenix_professionals_info_on_locations_callback( $post ) {
+	phenixsync_render_sync_debug_panel(
+		get_post_meta( $post->ID, 'professionals_sync_details', true ),
+		get_post_meta( $post->ID, 's3_index', true ),
+		'professionals'
+	);
+}
+
+/** Render the location API debug panel. */
+function phenix_locations_sync_debug_information_callback( $post ) {
+	phenixsync_render_sync_debug_panel(
+		get_post_meta( $post->ID, 'locations_sync_details', true ),
+		get_post_meta( $post->ID, 's3_index', true ),
+		'locations'
+	);
+}
+
+/** Render a compact, readable history of sync requests. */
+function phenixsync_render_sync_debug_panel( $details, $s3_index, $sync_type ) {
+	if ( ! is_array( $details ) || empty( $details ) ) {
+		echo '<p>No ' . esc_html( $sync_type ) . ' sync requests have been recorded for this location yet.</p>';
+		return;
+	}
+
+	echo '<p><strong>Location S3 Index:</strong> ' . esc_html( $s3_index ? $s3_index : 'n/a' ) . '</p>';
+	echo '<table class="widefat striped phenixsync-debug-table"><thead><tr><th>Details</th><th>When</th><th>Result</th><th>Response</th><th>Records</th></tr></thead><tbody>';
+	$modals = '';
+	foreach ( $details as $index => $request ) {
+		if ( ! is_array( $request ) ) {
+			continue;
+		}
+		$code = isset( $request['response_code'] ) ? (string) $request['response_code'] : 'n/a';
+		$shape = isset( $request['response_shape'] ) ? $request['response_shape'] : 'n/a';
+		$count = 'professionals' === $sync_type ? ( isset( $request['professional_count'] ) ? $request['professional_count'] : 0 ) : ( isset( $request['location_count'] ) ? $request['location_count'] : 0 );
+		$modal_id = 'phenixsync-debug-modal-' . sanitize_html_class( $sync_type ) . '-' . absint( $index );
+		echo '<tr><td><a href="#' . esc_attr( $modal_id ) . '" class="phenixsync-debug-modal-open">View details</a></td><td>' . esc_html( phenixsync_format_debug_time( $request ) ) . '</td><td>' . esc_html( $code ) . '</td><td>' . esc_html( $shape ) . '</td><td>' . esc_html( $count ) . '</td></tr>';
+		ob_start();
+		echo '<div id="' . esc_attr( $modal_id ) . '" class="phenixsync-debug-modal" role="dialog" aria-modal="true" aria-labelledby="' . esc_attr( $modal_id ) . '-title" aria-hidden="true" hidden><div class="phenixsync-debug-modal-backdrop" data-phenixsync-modal-close></div><div class="phenixsync-debug-modal-dialog" role="document" tabindex="-1"><div class="phenixsync-debug-modal-header"><h2 id="' . esc_attr( $modal_id ) . '-title">' . esc_html( ucfirst( $sync_type ) ) . ' sync request</h2><button type="button" class="button-link phenixsync-debug-modal-close" aria-label="Close details" data-phenixsync-modal-close>&times;</button></div><div class="phenixsync-debug-modal-content">';
+		echo '<dl class="phenixsync-debug-details">';
+		foreach ( array( 'response_size' => 'Response size', 'api_status' => 'API status', 'request_error' => 'Request error', 'json_error' => 'JSON error', 'top_level_keys' => 'Top-level keys' ) as $key => $label ) {
+			if ( empty( $request[ $key ] ) && '0' !== (string) ( $request[ $key ] ?? '' ) ) { continue; }
+			$value = is_array( $request[ $key ] ) ? implode( ', ', $request[ $key ] ) : $request[ $key ];
+			echo '<dt>' . esc_html( $label ) . '</dt><dd>' . esc_html( $value ) . '</dd>';
+		}
+		echo '</dl>';
+		if ( ! empty( $request['raw_response_preview'] ) ) {
+			phenixsync_render_debug_response_preview(
+				$request['raw_response_preview'],
+				isset( $request['raw_response_preview_encoding'] ) ? $request['raw_response_preview_encoding'] : ''
+			);
+		}
+		echo '</div></div></div>';
+		$modals .= ob_get_clean();
+	}
+	echo '</tbody></table>';
+	echo $modals; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Generated and escaped above.
+}
+
+/** Render a saved response as a syntax-coloured, foldable JSON tree when possible. */
+function phenixsync_render_debug_response_preview( $preview, $encoding = '' ) {
+	if ( 'base64' === $encoding ) {
+		$decoded_preview = base64_decode( $preview, true );
+		if ( false === $decoded_preview ) {
+			echo '<pre class="phenixsync-debug-preview">The saved response preview could not be decoded.</pre>';
+			return;
+		}
+		$preview = $decoded_preview;
+	}
+
+	$decoded = json_decode( $preview, true );
+
+	if ( JSON_ERROR_NONE !== json_last_error() ) {
+		echo '<pre class="phenixsync-debug-preview">' . esc_html( $preview ) . '</pre>';
+		return;
+	}
+
+	echo '<p class="phenixsync-debug-json-controls"><button type="button" class="button-link" data-phenixsync-json-collapse>Collapse all</button><span aria-hidden="true"> | </span><button type="button" class="button-link" data-phenixsync-json-expand>Expand all</button></p>';
+	echo '<div class="phenixsync-debug-json" role="region" aria-label="Response preview">';
+	phenixsync_render_debug_json_value( $decoded );
+	echo '</div>';
+}
+
+/** Render one JSON value, allowing nested objects and lists to be folded independently. */
+function phenixsync_render_debug_json_value( $value, $depth = 0 ) {
+	if ( is_array( $value ) ) {
+		$is_list = phenixsync_is_sequential_array( $value );
+		$open_char = $is_list ? '[' : '{';
+		$close_char = $is_list ? ']' : '}';
+		$count = count( $value );
+
+		if ( 0 === $count ) {
+			echo '<span class="phenixsync-json-punctuation">' . esc_html( $open_char . $close_char ) . '</span>';
+			return;
+		}
+
+		echo '<details class="phenixsync-json-group" open>';
+		echo '<summary><span class="phenixsync-json-punctuation">' . esc_html( $open_char ) . '</span> <span class="phenixsync-json-count">' . esc_html( $count . ( $is_list ? ' items' : ' fields' ) ) . '</span></summary>';
+		echo '<ul class="phenixsync-json-children">';
+		$position = 0;
+		foreach ( $value as $key => $item ) {
+			echo '<li class="phenixsync-json-line">';
+			if ( ! $is_list ) {
+				echo '<span class="phenixsync-json-key">' . esc_html( wp_json_encode( (string) $key ) ) . '</span><span class="phenixsync-json-punctuation">: </span>';
+			}
+			phenixsync_render_debug_json_value( $item, $depth + 1 );
+			if ( $position < $count - 1 ) {
+				echo '<span class="phenixsync-json-punctuation">,</span>';
+			}
+			echo '</li>';
+			$position++;
+		}
+		echo '</ul><span class="phenixsync-json-punctuation">' . esc_html( $close_char ) . '</span></details>';
+		return;
+	}
+
+	if ( is_bool( $value ) || null === $value ) {
+		echo '<span class="phenixsync-json-literal">' . esc_html( wp_json_encode( $value ) ) . '</span>';
+		return;
+	}
+
+	$class = is_numeric( $value ) ? 'phenixsync-json-number' : 'phenixsync-json-string';
+	echo '<span class="' . esc_attr( $class ) . '">' . esc_html( wp_json_encode( $value ) ) . '</span>';
+}
+
+/** Format a stored UTC sync timestamp in the WordPress site's configured timezone. */
+function phenixsync_format_debug_time( $request ) {
+	$timestamp = isset( $request['response_timestamp'] ) ? absint( $request['response_timestamp'] ) : 0;
+	if ( ! $timestamp && ! empty( $request['response_time_gmt'] ) ) {
+		$timestamp = strtotime( $request['response_time_gmt'] . ' UTC' );
+	}
+	if ( ! $timestamp && ! empty( $request['response_time'] ) ) {
+		$timestamp = strtotime( $request['response_time'] . ' UTC' );
+	}
+	return $timestamp ? wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ) . ' T', $timestamp ) : 'n/a';
 }

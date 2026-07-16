@@ -235,9 +235,14 @@ function phenixsync_single_location_sync( $S3_index ) {
 	// clear the transient first for phenixsync_locations_data
 	delete_transient( 'phenixsync_locations_data_' . $S3_index );
 	
-	$raw_response = phenixsync_locations_api_request( $S3_index);
+	$location_request = phenixsync_locations_api_request_with_debug( $S3_index );
+	$raw_response = $location_request['body'];
 	$locations_array = phenixsync_locations_json_to_php_array( $raw_response );
 	if ( empty( $locations_array ) || ! is_array( $locations_array ) ) {
+		$existing_post_id = phenixsync_locations_get_post_by_external_id( $S3_index );
+		if ( $existing_post_id ) {
+			phenixsync_save_locations_sync_details_to_location( $existing_post_id, $location_request['debug'] );
+		}
 		error_log( "Phenix Sync: No location data returned for S3_index {$S3_index}. Skipping single sync." );
 		return false;
 	}
@@ -258,6 +263,8 @@ function phenixsync_single_location_sync( $S3_index ) {
 		return false;
 	}
 
+	phenixsync_save_locations_sync_details_to_location( $post_id, $location_request['debug'] );
+
 	phenixsync_locations_update_post( $S3_index, $post_id );
 	phenixsync_locations_update_post_taxonomies( $S3_index, $post_id );
 	
@@ -271,6 +278,17 @@ function phenixsync_single_location_sync( $S3_index ) {
  * @return string API response or error message.
  */
 function phenixsync_locations_api_request( $s3_index ) {
+	$request = phenixsync_locations_api_request_with_debug( $s3_index );
+	return $request['body'];
+}
+
+/**
+ * Request location data and retain a concise diagnostic record for individual location syncs.
+ *
+ * @param string|int|null $s3_index Location index, if requesting one location.
+ * @return array{body: string, debug: array}
+ */
+function phenixsync_locations_api_request_with_debug( $s3_index ) {
 	
 	$password = phenix_sync_get_api_password();
 	$base_url = 'https://admin.ginasplatform.com/utilities/phenix_portal_locations_sender.aspx';
@@ -363,14 +381,23 @@ function phenixsync_locations_api_request( $s3_index ) {
 		}
 	}
 
+	$response_code = is_wp_error( $response ) ? 0 : wp_remote_retrieve_response_code( $response );
+	$response_body = is_wp_error( $response ) ? '' : wp_remote_retrieve_body( $response );
+	$debug = array(
+		'response_code'      => $response_code,
+		'response_time'      => current_time( 'mysql' ),
+		'response_time_gmt'  => current_time( 'mysql', true ),
+		'response_timestamp' => time(),
+		'response_size'      => is_wp_error( $response ) ? '' : ( wp_remote_retrieve_header( $response, 'Content-Length' ) ?: strlen( $response_body ) ),
+		'response_date'      => is_wp_error( $response ) ? '' : wp_remote_retrieve_header( $response, 'Date' ),
+	);
+
 	if ( is_wp_error( $response ) ) {
 		$error_message = $response->get_error_message();
 		$result        = "Error: " . esc_html( $error_message );
+		$debug['request_error'] = $error_message;
 		error_log( 'phenixsync_locations_api_request WP_Error: ' . $error_message );
 	} else {
-		$response_code = wp_remote_retrieve_response_code( $response );
-		$response_body = wp_remote_retrieve_body( $response );
-
 		if ( 200 === (int) $response_code ) {
 			$result = $response_body; // Store raw response
 		} else {
@@ -379,7 +406,53 @@ function phenixsync_locations_api_request( $s3_index ) {
 		}
 	}
 
-	return $result;
+	$debug = array_merge( $debug, phenixsync_get_locations_response_debug_summary( $response_body ? $response_body : $result ) );
+	return array( 'body' => $result, 'debug' => $debug );
+}
+
+/** Store the latest ten location API diagnostics on a location post. */
+function phenixsync_save_locations_sync_details_to_location( $post_id, $details ) {
+	$existing_details = get_post_meta( $post_id, 'locations_sync_details', true );
+	$existing_details = is_array( $existing_details ) ? $existing_details : array();
+	array_unshift( $existing_details, $details );
+	update_post_meta( $post_id, 'locations_sync_details', array_slice( $existing_details, 0, 10 ) );
+}
+
+/** Build a compact debug summary for a location API response. */
+function phenixsync_get_locations_response_debug_summary( $raw_response ) {
+	$raw_response = is_string( $raw_response ) ? $raw_response : '';
+	$summary = array(
+		'response_shape'       => 'empty_string',
+		'raw_response_length'  => strlen( $raw_response ),
+		'raw_response_preview' => $raw_response,
+		'location_count'       => 0,
+		'api_status'           => '',
+		'top_level_keys'       => array(),
+		'json_error'           => '',
+	);
+
+	if ( '' === trim( $raw_response ) ) { return $summary; }
+	if ( strpos( $raw_response, 'Error:' ) === 0 || strpos( $raw_response, 'Request failed with status code:' ) === 0 ) {
+		$summary['response_shape'] = 'error_string';
+		return $summary;
+	}
+	$decoded = json_decode( $raw_response, true );
+	if ( JSON_ERROR_NONE !== json_last_error() ) {
+		$summary['response_shape'] = 'invalid_json';
+		$summary['json_error'] = json_last_error_msg();
+		return $summary;
+	}
+	if ( ! is_array( $decoded ) ) {
+		$summary['response_shape'] = gettype( $decoded );
+		return $summary;
+	}
+	$summary['response_shape'] = 'json_object';
+	$summary['top_level_keys'] = array_slice( array_keys( $decoded ), 0, 20 );
+	$summary['api_status'] = isset( $decoded['status'] ) ? (string) $decoded['status'] : '';
+	$summary['location_count'] = isset( $decoded['locations'] ) && is_array( $decoded['locations'] ) ? count( $decoded['locations'] ) : 0;
+	$summary['raw_response_preview']          = base64_encode( phenixsync_encode_debug_json_preview( phenixsync_redact_sensitive_debug_data( $decoded ) ) );
+	$summary['raw_response_preview_encoding'] = 'base64';
+	return $summary;
 }
 
 /**

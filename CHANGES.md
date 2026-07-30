@@ -1,3 +1,26 @@
+## 1.3.1
+
+- Clarified location sync logging so changed locations explicitly report that their WordPress post was updated successfully.
+
+## 1.3
+
+- Reworked the daily and manual full sync into one locked, sequential pipeline: locations run one at a time, followed by professionals one location at a time.
+- Reduced peak memory use by retaining only the compact location ID queue and requesting each complete location record by `location_index` when its worker runs.
+- Removed obsolete full-response and individual-location transients, including one-time cleanup for legacy transient keys.
+- Added one-minute retry delays for failed location and professional requests and restored the worker interval to 10 seconds.
+- Added timeout and request-failure logging with consistent `Phenix Sync:` messages plus bounded memory checkpoints at major pipeline stages.
+- Avoided post, taxonomy, FacetWP, and Relevanssi updates when location or professional data is unchanged while continuing to record each sync request.
+- Consolidated location mutations so changed records receive one final post update after their meta and taxonomy data is ready for indexing.
+- Replaced post-meta debug histories with an automatically created custom table and migrated legacy histories as each location syncs.
+- Retained the latest five location and professional responses per location, storing complete password-redacted responses with gzip compression when available.
+- Added readable, foldable debug response viewers for both location and professional sync histories.
+- Added a settings-page status dashboard with current stage, progress, memory, start time, elapsed time, estimated remaining time, estimated completion time, retries, and errors.
+- Added adjacent manual Start and Stop controls, live 10-second status refreshes, one-time action notices, and safe queue/lock cleanup when a run is stopped.
+- Added bounded one-time cleanup for orphaned post-meta and taxonomy rows left by the former direct-delete process, with its completed notice expiring after 24 hours.
+- Switched synced post deletion to WordPress deletion APIs so post meta, taxonomy relationships, and search-index hooks are cleaned correctly.
+- Added S3 index matching to the Locations admin search.
+- Updated the manual sync description to clarify that a full sync includes both locations and professionals.
+
 ## 1.2
 
 - Added individual location sync controls to location edit screens and reload the admin screen after a successful location or professionals sync.

@@ -36,9 +36,66 @@ function phenixsync_encode_debug_json_preview( $payload ) {
 	return '{"debug_error":"The response preview could not be encoded."}';
 }
 
+/**
+ * Redact password values in a raw JSON response without decoding another copy
+ * of the complete payload into a PHP array.
+ *
+ * @param string $raw_response Raw API response.
+ * @return string
+ */
+function phenixsync_redact_debug_response_passwords( $raw_response ) {
+	if ( '' === $raw_response ) {
+		return '';
+	}
+
+	$redacted = preg_replace_callback(
+		'/("(?:password|api_password|phenix_api_password)"\s*:\s*)"(?:\\\\.|[^"\\\\])*"/i',
+		function ( $matches ) {
+			return $matches[1] . '"[redacted]"';
+		},
+		$raw_response
+	);
+
+	return is_string( $redacted ) ? $redacted : $raw_response;
+}
+
+/**
+ * Build a complete compressed response record for the debug table.
+ *
+ * Existing rows used plain base64 and may contain a truncated preview. The
+ * renderer supports both formats so deployment does not invalidate history.
+ *
+ * @param string $raw_response Raw API response.
+ * @return array
+ */
+function phenixsync_build_compressed_debug_response( $raw_response ) {
+	$raw_response = is_string( $raw_response ) ? $raw_response : '';
+	$raw_response = phenixsync_redact_debug_response_passwords( $raw_response );
+	$compressed   = function_exists( 'gzencode' ) ? gzencode( $raw_response, 6 ) : false;
+
+	if ( false !== $compressed ) {
+		return array(
+			'raw_response_preview'           => base64_encode( $compressed ),
+			'raw_response_preview_encoding'  => 'gzip+base64',
+			'raw_response_preview_truncated' => false,
+			'raw_response_preview_bytes'     => strlen( $raw_response ),
+			'raw_response_compressed_bytes'  => strlen( $compressed ),
+		);
+	}
+
+	// Very old or unusually configured PHP installations may lack zlib.
+	return array(
+		'raw_response_preview'           => base64_encode( $raw_response ),
+		'raw_response_preview_encoding'  => 'base64',
+		'raw_response_preview_truncated' => false,
+		'raw_response_preview_bytes'     => strlen( $raw_response ),
+		'raw_response_compressed_bytes'  => strlen( $raw_response ),
+	);
+}
+
 function phenix_professionals_info_on_locations_callback( $post ) {
 	phenixsync_render_sync_debug_panel(
-		get_post_meta( $post->ID, 'professionals_sync_details', true ),
+		phenixsync_get_sync_debug_details( $post->ID, 'professionals' ),
 		get_post_meta( $post->ID, 's3_index', true ),
 		'professionals'
 	);
@@ -47,7 +104,7 @@ function phenix_professionals_info_on_locations_callback( $post ) {
 /** Render the location API debug panel. */
 function phenix_locations_sync_debug_information_callback( $post ) {
 	phenixsync_render_sync_debug_panel(
-		get_post_meta( $post->ID, 'locations_sync_details', true ),
+		phenixsync_get_sync_debug_details( $post->ID, 'locations' ),
 		get_post_meta( $post->ID, 's3_index', true ),
 		'locations'
 	);
@@ -75,9 +132,14 @@ function phenixsync_render_sync_debug_panel( $details, $s3_index, $sync_type ) {
 		ob_start();
 		echo '<div id="' . esc_attr( $modal_id ) . '" class="phenixsync-debug-modal" role="dialog" aria-modal="true" aria-labelledby="' . esc_attr( $modal_id ) . '-title" aria-hidden="true" hidden><div class="phenixsync-debug-modal-backdrop" data-phenixsync-modal-close></div><div class="phenixsync-debug-modal-dialog" role="document" tabindex="-1"><div class="phenixsync-debug-modal-header"><h2 id="' . esc_attr( $modal_id ) . '-title">' . esc_html( ucfirst( $sync_type ) ) . ' sync request</h2><button type="button" class="button-link phenixsync-debug-modal-close" aria-label="Close details" data-phenixsync-modal-close>&times;</button></div><div class="phenixsync-debug-modal-content">';
 		echo '<dl class="phenixsync-debug-details">';
-		foreach ( array( 'response_size' => 'Response size', 'api_status' => 'API status', 'request_error' => 'Request error', 'json_error' => 'JSON error', 'top_level_keys' => 'Top-level keys' ) as $key => $label ) {
-			if ( empty( $request[ $key ] ) && '0' !== (string) ( $request[ $key ] ?? '' ) ) { continue; }
-			$value = is_array( $request[ $key ] ) ? implode( ', ', $request[ $key ] ) : $request[ $key ];
+		foreach ( array( 'response_size' => 'Response size', 'raw_response_preview_bytes' => 'Saved response bytes', 'raw_response_compressed_bytes' => 'Compressed bytes', 'raw_response_preview_truncated' => 'Preview truncated', 'api_status' => 'API status', 'request_error' => 'Request error', 'json_error' => 'JSON error', 'top_level_keys' => 'Top-level keys' ) as $key => $label ) {
+			$detail_value = $request[ $key ] ?? '';
+
+			if ( empty( $detail_value ) && 0 !== $detail_value && '0' !== $detail_value ) {
+				continue;
+			}
+
+			$value = is_array( $detail_value ) ? implode( ', ', $detail_value ) : $detail_value;
 			echo '<dt>' . esc_html( $label ) . '</dt><dd>' . esc_html( $value ) . '</dd>';
 		}
 		echo '</dl>';
@@ -96,13 +158,22 @@ function phenixsync_render_sync_debug_panel( $details, $s3_index, $sync_type ) {
 
 /** Render a saved response as a syntax-coloured, foldable JSON tree when possible. */
 function phenixsync_render_debug_response_preview( $preview, $encoding = '' ) {
-	if ( 'base64' === $encoding ) {
+	if ( in_array( $encoding, array( 'base64', 'gzip+base64' ), true ) ) {
 		$decoded_preview = base64_decode( $preview, true );
 		if ( false === $decoded_preview ) {
 			echo '<pre class="phenixsync-debug-preview">The saved response preview could not be decoded.</pre>';
 			return;
 		}
 		$preview = $decoded_preview;
+	}
+
+	if ( 'gzip+base64' === $encoding ) {
+		$decompressed_preview = function_exists( 'gzdecode' ) ? @gzdecode( $preview ) : false;
+		if ( false === $decompressed_preview ) {
+			echo '<pre class="phenixsync-debug-preview">The saved compressed response could not be decompressed.</pre>';
+			return;
+		}
+		$preview = $decompressed_preview;
 	}
 
 	$decoded = json_decode( $preview, true );

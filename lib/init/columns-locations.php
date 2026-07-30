@@ -53,6 +53,62 @@ function phenix_locations_custom_columns( $columns ) {
 add_filter( 'manage_locations_posts_columns', 'phenix_locations_custom_columns' );
 add_filter( 'manage_edit-locations_sortable_columns', 'phenix_locations_sortable_columns' );
 add_action( 'pre_get_posts', 'phenix_locations_orderby' );
+add_filter( 'posts_search', 'phenix_locations_admin_search_s3_index', 20, 2 );
+
+/**
+ * Include an exact S3 index match in the normal Locations admin search.
+ *
+ * The correlated subquery avoids joining post meta into the list-table query,
+ * which would otherwise risk duplicate rows and interfere with pagination.
+ *
+ * @param string   $search Existing WordPress post search SQL.
+ * @param WP_Query $query  Current query.
+ * @return string
+ */
+function phenix_locations_admin_search_s3_index( $search, $query ) {
+	if (
+		! is_admin()
+		|| ! $query->is_main_query()
+		|| 'locations' !== $query->get( 'post_type' )
+		|| ! $query->is_search()
+	) {
+		return $search;
+	}
+
+	$search_term = trim( (string) $query->get( 's' ) );
+
+	if ( '' === $search_term ) {
+		return $search;
+	}
+
+	global $wpdb;
+
+	$s3_search = $wpdb->prepare(
+		"EXISTS (
+			SELECT 1
+			FROM {$wpdb->postmeta} phenix_s3_search
+			WHERE phenix_s3_search.post_id = {$wpdb->posts}.ID
+				AND phenix_s3_search.meta_key = %s
+				AND phenix_s3_search.meta_value = %s
+		)",
+		's3_index',
+		$search_term
+	);
+
+	// Numeric searches on this screen are S3 identifiers. Prefer the exact
+	// identifier over incidental occurrences of the same digits in post text.
+	if ( ctype_digit( $search_term ) ) {
+		return " AND {$s3_search}";
+	}
+
+	if ( '' === trim( $search ) ) {
+		return " AND {$s3_search}";
+	}
+
+	$post_search = preg_replace( '/^\\s*AND\\s*/i', '', $search, 1 );
+
+	return " AND ( {$post_search} OR {$s3_search} )";
+}
 
 /**
  * Populate custom columns with data

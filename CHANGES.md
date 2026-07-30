@@ -1,4 +1,4 @@
-## 1.3.2
+## 1.4
 
 - Added signed, self-dispatching loopback workers so each successful location and professional handoff starts promptly in a fresh PHP request, with WP-Cron retained as a recovery watchdog.
 - Prevented delayed or duplicate watchdog requests from reprocessing earlier queue offsets or moving the status dashboard backward.

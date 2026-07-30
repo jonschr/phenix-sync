@@ -142,6 +142,21 @@ function phenixsync_professionals_manage_sync_process( $run_id ) {
 		return;
 	}
 
+	$status = phenixsync_get_full_sync_status();
+	if (
+		isset( $status['run_id'], $status['stage'] )
+		&& (string) $status['run_id'] === (string) $run_id
+		&& 'preparing_professionals' !== (string) $status['stage']
+	) {
+		error_log(
+			"Phenix Sync: Ignored stale professional-stage preparation for run {$run_id}; "
+			. 'the active stage is '
+			. sanitize_text_field( (string) $status['stage'] )
+			. '.'
+		);
+		return;
+	}
+
 	$location_ids = array_values(
 		array_unique(
 			array_filter( phenixsync_professionals_loop_through_locations_and_get_s3_location_ids() )
@@ -189,8 +204,8 @@ function phenixsync_professionals_manage_sync_process( $run_id ) {
 			'total'  => count( $location_ids ),
 		)
 	);
-	$worker_scheduled = phenixsync_schedule_worker_event(
-		time(),
+	$worker_scheduled = phenixsync_dispatch_pipeline_worker(
+		time() + PHENIXSYNC_WORKER_DELAY,
 		'phenixsync_process_professionals_queue',
 		array( 0, $run_id, 0 )
 	);
@@ -203,7 +218,19 @@ function phenixsync_professionals_manage_sync_process( $run_id ) {
 	}
 }
 
-add_action( 'phenixsync_start_professionals_queue', 'phenixsync_professionals_manage_sync_process', 10, 1 );
+/**
+ * Prepare the professional stage under the cross-request pipeline lease.
+ *
+ * @param string $run_id Full-sync run identifier.
+ */
+function phenixsync_run_professional_stage_worker( $run_id ) {
+	phenixsync_execute_claimed_pipeline_worker(
+		'phenixsync_start_professionals_queue',
+		array( (string) $run_id ),
+		'phenixsync_professionals_manage_sync_process'
+	);
+}
+add_action( 'phenixsync_start_professionals_queue', 'phenixsync_run_professional_stage_worker', 10, 1 );
 
 /**
  * Process one location's professionals in each cron request.
@@ -243,9 +270,28 @@ function phenixsync_process_professionals_queue( $offset, $run_id, $retry_attemp
 	$total        = count( $location_ids );
 	$offset       = absint( $offset );
 	$retry_attempt = absint( $retry_attempt );
+	$status       = phenixsync_get_full_sync_status();
+
+	if (
+		isset( $status['run_id'], $status['stage'], $status['completed'] )
+		&& (string) $status['run_id'] === (string) $run_id
+		&& (
+			'professionals' !== (string) $status['stage']
+			|| absint( $status['completed'] ) !== $offset
+		)
+	) {
+		error_log(
+			"Phenix Sync: Ignored stale or out-of-order professional worker {$offset}; "
+			. 'the saved professional offset is '
+			. absint( $status['completed'] )
+			. '.'
+		);
+		return;
+	}
 
 	if ( $offset >= $total ) {
 		delete_transient( 'phenixsync_professionals_queue' );
+		wp_clear_scheduled_hook( 'phenixsync_process_professionals_queue' );
 		phenixsync_log_memory_usage(
 			'full sync completed',
 			array(
@@ -351,7 +397,7 @@ function phenixsync_process_professionals_queue( $offset, $run_id, $retry_attemp
 		);
 	}
 
-	$next_scheduled = phenixsync_schedule_worker_event(
+	$next_scheduled = phenixsync_dispatch_pipeline_worker(
 		time() + PHENIXSYNC_WORKER_DELAY,
 		'phenixsync_process_professionals_queue',
 		array( $next_offset, $run_id, 0 )
@@ -364,7 +410,22 @@ function phenixsync_process_professionals_queue( $offset, $run_id, $retry_attemp
 		error_log( "Phenix Sync: Professional worker {$next_offset} could not be scheduled; the pipeline was stopped and its lock released." );
 	}
 }
-add_action( 'phenixsync_process_professionals_queue', 'phenixsync_process_professionals_queue', 10, 3 );
+
+/**
+ * Run one professional-location worker under the cross-request pipeline lease.
+ *
+ * @param int    $offset        Queue offset.
+ * @param string $run_id        Full-sync run identifier.
+ * @param int    $retry_attempt Number of retries already attempted.
+ */
+function phenixsync_run_professionals_pipeline_worker( $offset, $run_id, $retry_attempt = 0 ) {
+	phenixsync_execute_claimed_pipeline_worker(
+		'phenixsync_process_professionals_queue',
+		array( absint( $offset ), (string) $run_id, absint( $retry_attempt ) ),
+		'phenixsync_process_professionals_queue'
+	);
+}
+add_action( 'phenixsync_process_professionals_queue', 'phenixsync_run_professionals_pipeline_worker', 10, 3 );
 
 /**
  * Retry a REST- or admin-triggered professional sync.

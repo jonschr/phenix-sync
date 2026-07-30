@@ -447,7 +447,7 @@ function phenix_sync_options_page() {
 		<hr style="margin: 30px 0;">
 
 		<h2>Manual Full Sync</h2>
-		<p>Run the complete locations and professionals sync immediately. Locations are processed first, one at a time. After every location has finished, the professional sync starts automatically and processes one location at a time. This uses the same workflow as the scheduled daily sync, including deletion checks and one-minute retries for failed requests. A second full sync cannot start while one is already active.</p>
+		<p>Run the complete locations and professionals sync immediately. Locations are processed first, one at a time. After every location has finished, the professional sync starts automatically and processes one location at a time. Each successful worker hands the next item to a fresh PHP request, while WP-Cron remains available as a recovery watchdog. This uses the same workflow as the scheduled daily sync, including deletion checks and one-minute retries for failed requests. A second full sync cannot start while one is already active.</p>
 		<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px;">
 			<form action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" method="post">
 				<input type="hidden" name="action" value="phenixsync_run_locations_sync" />
@@ -758,6 +758,7 @@ function phenix_sync_clear_transients_and_cron_events() {
 	delete_transient('phenixsync_valid_location_ids');
 	delete_transient('phenixsync_professionals_queue');
 	delete_option( 'phenixsync_full_sync_lock' );
+	delete_option( PHENIXSYNC_WORKER_CLAIM_OPTION );
 
 	if ( function_exists( 'phenixsync_clear_legacy_individual_location_transients' ) ) {
 		phenixsync_clear_legacy_individual_location_transients();

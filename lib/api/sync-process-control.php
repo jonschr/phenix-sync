@@ -6,6 +6,9 @@ define( 'PHENIXSYNC_ORPHAN_CLEANUP_STATUS_OPTION', 'phenixsync_orphan_cleanup_st
 define( 'PHENIXSYNC_MAX_RETRY_ATTEMPTS', 2 );
 define( 'PHENIXSYNC_RETRY_DELAY', MINUTE_IN_SECONDS );
 define( 'PHENIXSYNC_WORKER_DELAY', 10 );
+define( 'PHENIXSYNC_LOOPBACK_WATCHDOG_DELAY', 2 * MINUTE_IN_SECONDS );
+define( 'PHENIXSYNC_WORKER_CLAIM_STALE_AFTER', 3 * MINUTE_IN_SECONDS );
+define( 'PHENIXSYNC_WORKER_CLAIM_OPTION', 'phenixsync_pipeline_worker_claim' );
 define( 'PHENIXSYNC_LOCK_STALE_AFTER', DAY_IN_SECONDS - HOUR_IN_SECONDS );
 define( 'PHENIXSYNC_ORPHAN_CLEANUP_VERSION', '1' );
 define( 'PHENIXSYNC_ORPHAN_CLEANUP_BATCH_SIZE', 10000 );
@@ -52,6 +55,9 @@ function phenixsync_update_full_sync_status( $run_id, $changes = array() ) {
 		return false;
 	}
 
+	$previous_stage     = isset( $status['stage'] ) ? (string) $status['stage'] : '';
+	$previous_completed = isset( $status['completed'] ) ? absint( $status['completed'] ) : 0;
+
 	$defaults = array(
 		'run_id'          => $run_id,
 		'state'           => 'running',
@@ -75,6 +81,18 @@ function phenixsync_update_full_sync_status( $run_id, $changes = array() ) {
 		if ( in_array( $key, $allowed_keys, true ) ) {
 			$status[ $key ] = $value;
 		}
+	}
+
+	/*
+	 * Delayed cron watchdogs must never move progress backward within a stage.
+	 * A legitimate stage transition may reset its own counter.
+	 */
+	if (
+		$previous_stage
+		&& $previous_stage === (string) $status['stage']
+		&& absint( $status['completed'] ) < $previous_completed
+	) {
+		$status['completed'] = $previous_completed;
 	}
 
 	$status['run_id']         = $run_id;
@@ -410,6 +428,7 @@ function phenixsync_stop_full_sync( $message = 'The full sync was stopped by an 
 
 	delete_transient( 'phenixsync_locations_data' );
 	delete_transient( 'phenixsync_professionals_queue' );
+	delete_option( PHENIXSYNC_WORKER_CLAIM_OPTION );
 
 	if ( '' === $run_id ) {
 		return false;
@@ -442,6 +461,332 @@ function phenixsync_schedule_worker_event( $timestamp, $hook, $args ) {
 	}
 
 	return (bool) wp_schedule_single_event( $timestamp, $hook, $args );
+}
+
+/**
+ * Return the full-sync run ID carried by a pipeline worker.
+ *
+ * @param string $hook Pipeline hook.
+ * @param array  $args Hook arguments.
+ * @return string
+ */
+function phenixsync_get_pipeline_worker_run_id( $hook, $args ) {
+	if ( 'phenixsync_start_professionals_queue' === $hook ) {
+		return isset( $args[0] ) ? (string) $args[0] : '';
+	}
+
+	return isset( $args[1] ) ? (string) $args[1] : '';
+}
+
+/**
+ * Normalize and validate arguments accepted by the private continuation route.
+ *
+ * @param string $hook Pipeline hook.
+ * @param array  $args Requested hook arguments.
+ * @return array|false
+ */
+function phenixsync_normalize_pipeline_worker_args( $hook, $args ) {
+	if ( ! is_array( $args ) ) {
+		return false;
+	}
+
+	if ( 'phenixsync_start_professionals_queue' === $hook ) {
+		if ( 1 !== count( $args ) || '' === (string) $args[0] ) {
+			return false;
+		}
+
+		return array( sanitize_text_field( (string) $args[0] ) );
+	}
+
+	if (
+		! in_array( $hook, array( 'phenixsync_do_process_batch', 'phenixsync_process_professionals_queue' ), true )
+		|| 3 !== count( $args )
+		|| '' === (string) $args[1]
+	) {
+		return false;
+	}
+
+	return array(
+		absint( $args[0] ),
+		sanitize_text_field( (string) $args[1] ),
+		absint( $args[2] ),
+	);
+}
+
+/**
+ * Build the message authenticated by the internal continuation signature.
+ *
+ * @param string $hook       Pipeline hook.
+ * @param string $args_json  JSON-encoded hook arguments.
+ * @param int    $not_before Earliest worker start time.
+ * @return string
+ */
+function phenixsync_get_pipeline_continuation_message( $hook, $args_json, $not_before ) {
+	return $hook . "\n" . $args_json . "\n" . absint( $not_before );
+}
+
+/**
+ * Sign a private loopback continuation without storing a reusable public token.
+ *
+ * @param string $hook       Pipeline hook.
+ * @param string $args_json  JSON-encoded hook arguments.
+ * @param int    $not_before Earliest worker start time.
+ * @return string
+ */
+function phenixsync_sign_pipeline_continuation( $hook, $args_json, $not_before ) {
+	return hash_hmac(
+		'sha256',
+		phenixsync_get_pipeline_continuation_message( $hook, $args_json, $not_before ),
+		wp_salt( 'auth' )
+	);
+}
+
+/**
+ * Schedule a cron watchdog and send a nonblocking request for the next worker.
+ *
+ * The loopback normally starts the worker at the requested time. The later
+ * WP-Cron event remains available if loopback HTTP is blocked or interrupted.
+ *
+ * @param int    $timestamp Earliest worker start timestamp.
+ * @param string $hook      Pipeline hook.
+ * @param array  $args      Hook arguments.
+ * @return bool True when either the loopback or watchdog was queued.
+ */
+function phenixsync_dispatch_pipeline_worker( $timestamp, $hook, $args ) {
+	$args = phenixsync_normalize_pipeline_worker_args( $hook, $args );
+
+	if ( false === $args ) {
+		error_log( "Phenix Sync: Refused to dispatch invalid pipeline worker arguments for {$hook}." );
+		return false;
+	}
+
+	$timestamp          = max( time(), absint( $timestamp ) );
+	$watchdog_timestamp = $timestamp + PHENIXSYNC_LOOPBACK_WATCHDOG_DELAY;
+	$watchdog_scheduled = phenixsync_schedule_worker_event( $watchdog_timestamp, $hook, $args );
+	$args_json          = wp_json_encode( $args );
+
+	if ( false === $args_json ) {
+		error_log( "Phenix Sync: Could not encode pipeline worker arguments for {$hook}; the WP-Cron watchdog remains scheduled." );
+		return $watchdog_scheduled;
+	}
+
+	/*
+	 * The URL is generated locally and the request is authenticated below.
+	 * Use wp_remote_post() so LocalWP and hosts that resolve their own domain to
+	 * a private address can still perform the loopback.
+	 */
+	$response = wp_remote_post(
+		rest_url( 'phenix-sync/v1/continue' ),
+		array(
+			'timeout'     => 1,
+			'redirection' => 0,
+			'blocking'    => false,
+			'user-agent'  => sprintf(
+				'Phenix-Sync/%s (+%s) WordPress/%s',
+				PHENIX_SYNC_VERSION,
+				esc_url_raw( home_url( '/' ) ),
+				get_bloginfo( 'version' )
+			),
+			'body'        => array(
+				'hook'       => $hook,
+				'args'       => $args_json,
+				'not_before' => $timestamp,
+				'signature'  => phenixsync_sign_pipeline_continuation( $hook, $args_json, $timestamp ),
+			),
+		)
+	);
+
+	if ( is_wp_error( $response ) ) {
+		error_log(
+			"Phenix Sync: Automatic continuation request for {$hook} could not be sent; "
+			. 'the WP-Cron watchdog remains scheduled. '
+			. $response->get_error_message()
+		);
+		return $watchdog_scheduled;
+	}
+
+	return true;
+}
+
+/**
+ * Validate an internal pipeline continuation request.
+ *
+ * @param WP_REST_Request $request REST request.
+ * @return bool|WP_Error
+ */
+function phenixsync_pipeline_continuation_permission( $request ) {
+	$hook         = sanitize_key( (string) $request->get_param( 'hook' ) );
+	$args_json    = (string) $request->get_param( 'args' );
+	$not_before   = absint( $request->get_param( 'not_before' ) );
+	$signature    = (string) $request->get_param( 'signature' );
+	$args         = json_decode( $args_json, true );
+	$current_time = time();
+
+	if (
+		false === phenixsync_normalize_pipeline_worker_args( $hook, $args )
+		|| ! $not_before
+		|| $not_before > $current_time + MINUTE_IN_SECONDS
+		|| $not_before < $current_time - ( 15 * MINUTE_IN_SECONDS )
+		|| ! preg_match( '/^[a-f0-9]{64}$/', $signature )
+	) {
+		return new WP_Error(
+			'phenixsync_invalid_continuation',
+			__( 'Invalid sync continuation request.', 'phenixsync-textdomain' ),
+			array( 'status' => 403 )
+		);
+	}
+
+	$expected_signature = phenixsync_sign_pipeline_continuation( $hook, $args_json, $not_before );
+
+	if ( ! hash_equals( $expected_signature, $signature ) ) {
+		return new WP_Error(
+			'phenixsync_invalid_continuation_signature',
+			__( 'Invalid sync continuation signature.', 'phenixsync-textdomain' ),
+			array( 'status' => 403 )
+		);
+	}
+
+	return true;
+}
+
+/**
+ * Execute a signed loopback continuation as a fresh PHP request.
+ *
+ * @param WP_REST_Request $request REST request.
+ * @return WP_REST_Response
+ */
+function phenixsync_run_pipeline_continuation( $request ) {
+	$hook       = sanitize_key( (string) $request->get_param( 'hook' ) );
+	$args       = json_decode( (string) $request->get_param( 'args' ), true );
+	$args       = phenixsync_normalize_pipeline_worker_args( $hook, $args );
+	$not_before = absint( $request->get_param( 'not_before' ) );
+	$run_id     = phenixsync_get_pipeline_worker_run_id( $hook, $args );
+
+	ignore_user_abort( true );
+
+	if ( $not_before > time() ) {
+		sleep( min( PHENIXSYNC_WORKER_DELAY, $not_before - time() ) );
+	}
+
+	if ( ! phenixsync_full_sync_lock_matches( $run_id ) ) {
+		return new WP_REST_Response(
+			array( 'status' => 'stale' ),
+			409
+		);
+	}
+
+	do_action_ref_array( $hook, $args );
+
+	return new WP_REST_Response(
+		array( 'status' => 'processed' ),
+		200
+	);
+}
+
+/**
+ * Register the private, signed continuation endpoint.
+ */
+function phenixsync_register_pipeline_continuation_route() {
+	register_rest_route(
+		'phenix-sync/v1',
+		'/continue',
+		array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => 'phenixsync_run_pipeline_continuation',
+			'permission_callback' => 'phenixsync_pipeline_continuation_permission',
+		)
+	);
+}
+add_action( 'rest_api_init', 'phenixsync_register_pipeline_continuation_route' );
+
+/**
+ * Acquire a short worker lease so cron and loopback cannot run concurrently.
+ *
+ * @param string $hook Pipeline hook.
+ * @param array  $args Hook arguments.
+ * @return string|false Unique lease token, or false while another worker runs.
+ */
+function phenixsync_acquire_pipeline_worker_claim( $hook, $args ) {
+	$existing = get_option( PHENIXSYNC_WORKER_CLAIM_OPTION, array() );
+	$acquired = is_array( $existing ) && isset( $existing['acquired_at'] )
+		? absint( $existing['acquired_at'] )
+		: 0;
+
+	if ( $acquired && $acquired > time() - PHENIXSYNC_WORKER_CLAIM_STALE_AFTER ) {
+		return false;
+	}
+
+	if ( ! empty( $existing ) ) {
+		delete_option( PHENIXSYNC_WORKER_CLAIM_OPTION );
+	}
+
+	$token = wp_generate_uuid4();
+	$claim = array(
+		'token'       => $token,
+		'hook'        => $hook,
+		'args_hash'   => md5( maybe_serialize( $args ) ),
+		'run_id'      => phenixsync_get_pipeline_worker_run_id( $hook, $args ),
+		'acquired_at' => time(),
+	);
+
+	if ( ! add_option( PHENIXSYNC_WORKER_CLAIM_OPTION, $claim, '', false ) ) {
+		return false;
+	}
+
+	return $token;
+}
+
+/**
+ * Release a worker lease only when it still belongs to this request.
+ *
+ * @param string $token Worker lease token.
+ */
+function phenixsync_release_pipeline_worker_claim( $token ) {
+	$claim = get_option( PHENIXSYNC_WORKER_CLAIM_OPTION, array() );
+
+	if ( is_array( $claim ) && isset( $claim['token'] ) && hash_equals( (string) $claim['token'], (string) $token ) ) {
+		delete_option( PHENIXSYNC_WORKER_CLAIM_OPTION );
+	}
+}
+
+/**
+ * Run one pipeline callback under the cross-request worker lease.
+ *
+ * @param string   $hook     Pipeline hook.
+ * @param array    $args     Hook arguments.
+ * @param callable $callback Actual worker callback.
+ * @return bool Whether this request acquired and ran the worker.
+ */
+function phenixsync_execute_claimed_pipeline_worker( $hook, $args, $callback ) {
+	$claim_token = phenixsync_acquire_pipeline_worker_claim( $hook, $args );
+
+	if ( ! $claim_token ) {
+		$active_claim = get_option( PHENIXSYNC_WORKER_CLAIM_OPTION, array() );
+		$acquired_at  = is_array( $active_claim ) && isset( $active_claim['acquired_at'] )
+			? absint( $active_claim['acquired_at'] )
+			: time();
+		$retry_at     = max(
+			time() + PHENIXSYNC_WORKER_DELAY,
+			$acquired_at + PHENIXSYNC_WORKER_CLAIM_STALE_AFTER + 1
+		);
+
+		/*
+		 * Usually the active request clears this duplicate. If that request
+		 * fatals or exhausts memory, this event survives long enough to reclaim
+		 * the expired lease and resume the pipeline.
+		 */
+		phenixsync_schedule_worker_event( $retry_at, $hook, $args );
+		return false;
+	}
+
+	try {
+		call_user_func_array( $callback, $args );
+		wp_clear_scheduled_hook( $hook, $args );
+	} finally {
+		phenixsync_release_pipeline_worker_claim( $claim_token );
+	}
+
+	return true;
 }
 
 /**
@@ -508,6 +853,7 @@ function phenixsync_maybe_upgrade_sync_schedule() {
 	wp_clear_scheduled_hook( 'phenixsync_retry_single_professionals_sync' );
 	delete_transient( 'phenixsync_locations_data' );
 	delete_transient( 'phenixsync_professionals_queue' );
+	delete_option( PHENIXSYNC_WORKER_CLAIM_OPTION );
 	delete_option( PHENIXSYNC_FULL_SYNC_LOCK_OPTION );
 
 	update_option( 'phenixsync_schedule_upgrade_version', $upgrade_version, false );

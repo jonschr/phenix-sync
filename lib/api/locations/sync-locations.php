@@ -252,7 +252,7 @@ function phenixsync_locations_sync_init( $run_id = '', $retry_attempt = 0 ) {
 		)
 	);
 	
-	$worker_scheduled = phenixsync_schedule_worker_event(
+	$worker_scheduled = phenixsync_dispatch_pipeline_worker(
 		time(),
 		'phenixsync_do_process_batch',
 		array( 0, $run_id, 0 )
@@ -459,6 +459,24 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 
 	$offset = absint( $offset );
 	$total  = count( $location_ids );
+	$status = phenixsync_get_full_sync_status();
+
+	if (
+		isset( $status['run_id'], $status['stage'], $status['completed'] )
+		&& (string) $status['run_id'] === (string) $run_id
+		&& (
+			'locations' !== (string) $status['stage']
+			|| absint( $status['completed'] ) !== $offset
+		)
+	) {
+		error_log(
+			"Phenix Sync: Ignored stale or out-of-order location worker {$offset}; "
+			. 'the saved location offset is '
+			. absint( $status['completed'] )
+			. '.'
+		);
+		return;
+	}
 
 	if ( ! isset( $location_ids[ $offset ] ) ) {
 		error_log( "Phenix Sync: Location queue offset {$offset} is outside the {$total}-item queue." );
@@ -556,7 +574,7 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 	}
 
 	if ( $next_offset < $total ) {
-		$next_scheduled = phenixsync_schedule_worker_event(
+		$next_scheduled = phenixsync_dispatch_pipeline_worker(
 			time() + PHENIXSYNC_WORKER_DELAY,
 			'phenixsync_do_process_batch',
 			array( $next_offset, $run_id, 0 )
@@ -570,7 +588,8 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 		}
 	} else {
 		delete_transient( 'phenixsync_locations_data' );
-		$scheduled = phenixsync_schedule_worker_event(
+		wp_clear_scheduled_hook( 'phenixsync_do_process_batch' );
+		$scheduled = phenixsync_dispatch_pipeline_worker(
 			time() + PHENIXSYNC_WORKER_DELAY,
 			'phenixsync_start_professionals_queue',
 			array( $run_id )
@@ -594,7 +613,22 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 		}
 	}
 }
-add_action( 'phenixsync_do_process_batch', 'phenixsync_process_batch', 10, 3 );
+
+/**
+ * Run a location worker under the cross-request pipeline lease.
+ *
+ * @param int    $offset        Queue offset.
+ * @param string $run_id        Pipeline run identifier.
+ * @param int    $retry_attempt Retry attempts already made for this offset.
+ */
+function phenixsync_run_location_pipeline_worker( $offset, $run_id = '', $retry_attempt = 0 ) {
+	phenixsync_execute_claimed_pipeline_worker(
+		'phenixsync_do_process_batch',
+		array( absint( $offset ), (string) $run_id, absint( $retry_attempt ) ),
+		'phenixsync_process_batch'
+	);
+}
+add_action( 'phenixsync_do_process_batch', 'phenixsync_run_location_pipeline_worker', 10, 3 );
 
 /**
  * Syncs a single location based on its S3_index.

@@ -382,8 +382,19 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 		return;
 	}
 
+	$run_id = (string) $run_id;
+	if ( $run_id && ! phenixsync_full_sync_worker_owns_stage( $run_id, 'locations' ) ) {
+		error_log( "Phenix Sync: Ignored stale location worker for run {$run_id}; the location stage is no longer active." );
+		return;
+	}
+
 	$locations_queue = get_transient( 'phenixsync_locations_data' );
 	if ( ! $locations_queue ) {
+		if ( $run_id && ! phenixsync_full_sync_worker_owns_stage_offset( $run_id, 'locations', $offset ) ) {
+			error_log( "Phenix Sync: Ignored stale location worker for run {$run_id}; its queue was already handed off." );
+			return;
+		}
+
 		error_log('Phenix Sync: Locations data transient not found in phenixsync_process_batch.');
 		phenixsync_finish_full_sync_status( $run_id, 'failed', 'The location queue could not be found.' );
 		phenixsync_release_full_sync_lock( $run_id );
@@ -391,6 +402,11 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 	}
 
 	if ( ! is_array( $locations_queue ) ) {
+		if ( $run_id && ! phenixsync_full_sync_worker_owns_stage_offset( $run_id, 'locations', $offset ) ) {
+			error_log( "Phenix Sync: Ignored stale location worker for run {$run_id}; its queue was already handed off." );
+			return;
+		}
+
 		error_log('Phenix Sync: Locations data transient is not an array in phenixsync_process_batch.');
 		phenixsync_finish_full_sync_status( $run_id, 'failed', 'The location queue was invalid.' );
 		phenixsync_release_full_sync_lock( $run_id );
@@ -448,6 +464,11 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 	);
 
 	if ( empty( $location_ids ) ) {
+		if ( $run_id && ! phenixsync_full_sync_worker_owns_stage_offset( $run_id, 'locations', $offset ) ) {
+			error_log( "Phenix Sync: Ignored stale location worker for run {$run_id}; its queue was already handed off." );
+			return;
+		}
+
 		error_log( 'Phenix Sync: Locations queue contains no valid S3 indices.' );
 		delete_transient( 'phenixsync_locations_data' );
 		phenixsync_finish_full_sync_status( $run_id, 'failed', 'The location queue contained no valid location IDs.' );
@@ -500,8 +521,20 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 	);
 	$sync_result = phenixsync_single_location_sync( $s3_index );
 
-	if ( ! phenixsync_full_sync_lock_matches( $run_id ) ) {
+	if ( ! phenixsync_full_sync_worker_owns_stage( $run_id, 'locations' ) ) {
 		error_log( "Phenix Sync: Location worker for run {$run_id} stopped after its active request finished; no further work was scheduled." );
+		return;
+	}
+	$status = phenixsync_get_full_sync_status();
+	if (
+		isset( $status['run_id'], $status['stage'], $status['completed'] )
+		&& (string) $status['run_id'] === (string) $run_id
+		&& (
+			'locations' !== (string) $status['stage']
+			|| absint( $status['completed'] ) !== $offset
+		)
+	) {
+		error_log( "Phenix Sync: Ignored location worker {$offset} for run {$run_id} after another worker advanced the queue." );
 		return;
 	}
 
@@ -589,6 +622,23 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 	} else {
 		delete_transient( 'phenixsync_locations_data' );
 		wp_clear_scheduled_hook( 'phenixsync_do_process_batch' );
+
+		/* Publish the handoff before the next request is allowed to run. */
+		if ( ! phenixsync_full_sync_worker_owns_stage( $run_id, 'locations' ) ) {
+			error_log( "Phenix Sync: Location run {$run_id} lost its active stage before the professional handoff; no further work was scheduled." );
+			return;
+		}
+
+		phenixsync_touch_full_sync_lock( $run_id );
+		phenixsync_update_full_sync_status(
+			$run_id,
+			array(
+				'stage'            => 'preparing_professionals',
+				'completed'        => $total,
+				'total'            => $total,
+				'current_s3_index' => '',
+			)
+		);
 		$scheduled = phenixsync_dispatch_pipeline_worker(
 			time() + PHENIXSYNC_WORKER_DELAY,
 			'phenixsync_start_professionals_queue',
@@ -596,15 +646,6 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 		);
 
 		if ( $scheduled ) {
-			phenixsync_update_full_sync_status(
-				$run_id,
-				array(
-					'stage'            => 'preparing_professionals',
-					'completed'        => $total,
-					'total'            => $total,
-					'current_s3_index' => '',
-				)
-			);
 			error_log( "Phenix Sync: All {$total} locations were processed. The professional stage was scheduled next." );
 		} else {
 			phenixsync_finish_full_sync_status( $run_id, 'failed', 'The professional stage could not be scheduled.' );

@@ -5,7 +5,7 @@ Tags: comments, spam
 Requires at least: 5.9
 Tested up to: 6.7.1
 Requires PHP: 7.4
-Stable tag: 1.4
+Stable tag: 1.5
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,11 @@ directory take precedence. For example, `/assets/screenshot-1.png` would win ove
 2. This is the second screen shot
 
 == Changelog ==
+
+= 1.5 =
+
+* Hardened sequential sync workers against delayed callbacks releasing the shared full-sync lock after a stage handoff.
+* Preserved active sync pipelines during schedule migration.
 
 = 1.4 =
 * Added self-dispatching, fresh-request sync workers with a WP-Cron recovery watchdog.

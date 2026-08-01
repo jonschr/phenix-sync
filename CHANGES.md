@@ -1,7 +1,13 @@
+## 1.5
+
+- Hardened sequential sync workers against delayed loopback and WP-Cron callbacks releasing the shared full-sync lock after a stage handoff.
+- Published the professional-stage transition before dispatching its worker and preserved active pipelines during schedule migration.
+
 ## 1.4
 
 - Added signed, self-dispatching loopback workers so each successful location and professional handoff starts promptly in a fresh PHP request, with WP-Cron retained as a recovery watchdog.
 - Prevented delayed or duplicate watchdog requests from reprocessing earlier queue offsets or moving the status dashboard backward.
+- Ignored delayed workers after a queue handoff so they cannot release the shared lock for the next stage; deployment schedule migration also preserves an active pipeline.
 - Identified internal continuation requests with a versioned Phenix Sync user agent, plus the originating WordPress version and site URL.
 
 ## 1.3.1

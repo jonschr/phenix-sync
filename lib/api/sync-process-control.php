@@ -361,6 +361,54 @@ function phenixsync_full_sync_lock_matches( $run_id ) {
 }
 
 /**
+ * Confirm that a pipeline worker still belongs to the requested active stage.
+ *
+ * Delayed loopback requests and WP-Cron watchdogs can arrive after a stage has
+ * already handed off to the next queue. Those workers must not treat the
+ * previous stage's queue as missing and release the shared full-sync lock.
+ *
+ * @param string $run_id Run identifier.
+ * @param string $stage  Expected active stage.
+ * @return bool
+ */
+function phenixsync_full_sync_worker_owns_stage( $run_id, $stage ) {
+	if ( ! phenixsync_full_sync_lock_matches( $run_id ) ) {
+		return false;
+	}
+
+	$status = phenixsync_get_full_sync_status();
+
+	/* A pre-status-tracking run can still be adopted by its active lock. */
+	if ( empty( $status['run_id'] ) ) {
+		return true;
+	}
+
+	return (string) $status['run_id'] === (string) $run_id
+		&& ( ! isset( $status['state'] ) || 'running' === (string) $status['state'] )
+		&& ( ! isset( $status['stage'] ) || (string) $status['stage'] === (string) $stage );
+}
+
+/**
+ * Confirm that a worker still owns the saved queue offset as well as its stage.
+ *
+ * @param string $run_id Run identifier.
+ * @param string $stage  Expected active stage.
+ * @param int    $offset Queue offset.
+ * @return bool
+ */
+function phenixsync_full_sync_worker_owns_stage_offset( $run_id, $stage, $offset ) {
+	if ( ! phenixsync_full_sync_worker_owns_stage( $run_id, $stage ) ) {
+		return false;
+	}
+
+	$status = phenixsync_get_full_sync_status();
+
+	return empty( $status['run_id'] )
+		|| ! isset( $status['completed'] )
+		|| absint( $status['completed'] ) === absint( $offset );
+}
+
+/**
  * Refresh the active pipeline lock.
  *
  * @param string $run_id Run identifier.
@@ -840,6 +888,22 @@ function phenixsync_maybe_upgrade_sync_schedule() {
 	$upgrade_version = '3';
 
 	if ( $upgrade_version === get_option( 'phenixsync_schedule_upgrade_version' ) ) {
+		return;
+	}
+
+	$active_lock = phenixsync_get_full_sync_lock();
+	$active_run  = ! empty( $active_lock['run_id'] )
+		&& isset( $active_lock['heartbeat'] )
+		&& absint( $active_lock['heartbeat'] ) > time() - PHENIXSYNC_LOCK_STALE_AFTER;
+
+	if ( $active_run ) {
+		/* Do not destroy a live pipeline while a deployment migration runs. */
+		wp_clear_scheduled_hook( 'phenixsync_professionals_cron_hook' );
+		wp_clear_scheduled_hook( 'phenixsync_sync_individual_location_professionals_event' );
+		wp_clear_scheduled_hook( 'phenixsync_retry_single_location_sync' );
+		wp_clear_scheduled_hook( 'phenixsync_retry_single_professionals_sync' );
+		update_option( 'phenixsync_schedule_upgrade_version', $upgrade_version, false );
+		error_log( 'Phenix Sync: Preserved the active full-sync pipeline while clearing legacy standalone events during the schedule upgrade.' );
 		return;
 	}
 

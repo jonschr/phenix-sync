@@ -1,3 +1,7 @@
+## 1.6
+
+- Stopped logging expected stale, duplicate, and out-of-order sync workers while retaining all worker safety checks and actionable failure logs.
+
 ## 1.5
 
 - Hardened sequential sync workers against delayed loopback and WP-Cron callbacks releasing the shared full-sync lock after a stage handoff.

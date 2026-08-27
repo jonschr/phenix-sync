@@ -143,7 +143,6 @@ function phenixsync_locations_sync_init( $run_id = '', $retry_attempt = 0 ) {
 	);
 
 	if ( ! phenixsync_full_sync_lock_matches( $run_id ) ) {
-		error_log( "Phenix Sync: Location initialization for run {$run_id} stopped after its active request finished." );
 		return false;
 	}
 
@@ -384,14 +383,12 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 
 	$run_id = (string) $run_id;
 	if ( $run_id && ! phenixsync_full_sync_worker_owns_stage( $run_id, 'locations' ) ) {
-		error_log( "Phenix Sync: Ignored stale location worker for run {$run_id}; the location stage is no longer active." );
 		return;
 	}
 
 	$locations_queue = get_transient( 'phenixsync_locations_data' );
 	if ( ! $locations_queue ) {
 		if ( $run_id && ! phenixsync_full_sync_worker_owns_stage_offset( $run_id, 'locations', $offset ) ) {
-			error_log( "Phenix Sync: Ignored stale location worker for run {$run_id}; its queue was already handed off." );
 			return;
 		}
 
@@ -403,7 +400,6 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 
 	if ( ! is_array( $locations_queue ) ) {
 		if ( $run_id && ! phenixsync_full_sync_worker_owns_stage_offset( $run_id, 'locations', $offset ) ) {
-			error_log( "Phenix Sync: Ignored stale location worker for run {$run_id}; its queue was already handed off." );
 			return;
 		}
 
@@ -422,7 +418,6 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 		$run_id       = $run_id ? (string) $run_id : $queue_run_id;
 
 		if ( $run_id !== $queue_run_id || ! phenixsync_full_sync_lock_matches( $run_id ) ) {
-			error_log( 'Phenix Sync: Ignored a stale location worker whose run ID no longer owns the queue.' );
 			return;
 		}
 	} else {
@@ -465,7 +460,6 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 
 	if ( empty( $location_ids ) ) {
 		if ( $run_id && ! phenixsync_full_sync_worker_owns_stage_offset( $run_id, 'locations', $offset ) ) {
-			error_log( "Phenix Sync: Ignored stale location worker for run {$run_id}; its queue was already handed off." );
 			return;
 		}
 
@@ -490,12 +484,6 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 			|| absint( $status['completed'] ) !== $offset
 		)
 	) {
-		error_log(
-			"Phenix Sync: Ignored stale or out-of-order location worker {$offset}; "
-			. 'the saved location offset is '
-			. absint( $status['completed'] )
-			. '.'
-		);
 		return;
 	}
 
@@ -522,7 +510,6 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 	$sync_result = phenixsync_single_location_sync( $s3_index );
 
 	if ( ! phenixsync_full_sync_worker_owns_stage( $run_id, 'locations' ) ) {
-		error_log( "Phenix Sync: Location worker for run {$run_id} stopped after its active request finished; no further work was scheduled." );
 		return;
 	}
 	$status = phenixsync_get_full_sync_status();
@@ -534,7 +521,6 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 			|| absint( $status['completed'] ) !== $offset
 		)
 	) {
-		error_log( "Phenix Sync: Ignored location worker {$offset} for run {$run_id} after another worker advanced the queue." );
 		return;
 	}
 
@@ -625,7 +611,6 @@ function phenixsync_process_batch( $offset, $run_id = '', $retry_attempt = 0 ) {
 
 		/* Publish the handoff before the next request is allowed to run. */
 		if ( ! phenixsync_full_sync_worker_owns_stage( $run_id, 'locations' ) ) {
-			error_log( "Phenix Sync: Location run {$run_id} lost its active stage before the professional handoff; no further work was scheduled." );
 			return;
 		}
 

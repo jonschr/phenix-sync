@@ -138,7 +138,6 @@ function phenixsync_professionals_manage_sync_process( $run_id ) {
 
 	if ( ! phenixsync_full_sync_lock_matches( $run_id ) ) {
 		phenixsync_finish_full_sync_status( $run_id, 'failed', 'The professional stage no longer owned the full-sync lock.' );
-		error_log( "Phenix Sync: Professional stage ignored because run {$run_id} no longer owns the full-sync lock." );
 		return;
 	}
 
@@ -148,12 +147,6 @@ function phenixsync_professionals_manage_sync_process( $run_id ) {
 		&& (string) $status['run_id'] === (string) $run_id
 		&& 'preparing_professionals' !== (string) $status['stage']
 	) {
-		error_log(
-			"Phenix Sync: Ignored stale professional-stage preparation for run {$run_id}; "
-			. 'the active stage is '
-			. sanitize_text_field( (string) $status['stage'] )
-			. '.'
-		);
 		return;
 	}
 
@@ -164,7 +157,6 @@ function phenixsync_professionals_manage_sync_process( $run_id ) {
 	);
 
 	if ( ! phenixsync_full_sync_lock_matches( $run_id ) ) {
-		error_log( "Phenix Sync: Professional queue preparation for run {$run_id} stopped before any worker was scheduled." );
 		return;
 	}
 
@@ -243,7 +235,6 @@ add_action( 'phenixsync_start_professionals_queue', 'phenixsync_run_professional
 function phenixsync_process_professionals_queue( $offset, $run_id, $retry_attempt = 0 ) {
 	$run_id = (string) $run_id;
 	if ( $run_id && ! phenixsync_full_sync_worker_owns_stage( $run_id, 'professionals' ) ) {
-		error_log( "Phenix Sync: Ignored stale professional worker for run {$run_id}; the professional stage is no longer active." );
 		return;
 	}
 
@@ -286,12 +277,6 @@ function phenixsync_process_professionals_queue( $offset, $run_id, $retry_attemp
 			|| absint( $status['completed'] ) !== $offset
 		)
 	) {
-		error_log(
-			"Phenix Sync: Ignored stale or out-of-order professional worker {$offset}; "
-			. 'the saved professional offset is '
-			. absint( $status['completed'] )
-			. '.'
-		);
 		return;
 	}
 
@@ -333,7 +318,6 @@ function phenixsync_process_professionals_queue( $offset, $run_id, $retry_attemp
 	$result = phenixsync_sync_individual_location_professionals( $s3_index );
 
 	if ( ! phenixsync_full_sync_worker_owns_stage( $run_id, 'professionals' ) ) {
-		error_log( "Phenix Sync: Professional worker for run {$run_id} stopped after its active request finished; no further work was scheduled." );
 		return;
 	}
 	$status = phenixsync_get_full_sync_status();
@@ -345,7 +329,6 @@ function phenixsync_process_professionals_queue( $offset, $run_id, $retry_attemp
 			|| absint( $status['completed'] ) !== $offset
 		)
 	) {
-		error_log( "Phenix Sync: Ignored professional worker {$offset} for run {$run_id} after another worker advanced the queue." );
 		return;
 	}
 

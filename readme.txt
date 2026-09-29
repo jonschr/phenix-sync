@@ -5,7 +5,7 @@ Tags: comments, spam
 Requires at least: 5.9
 Tested up to: 6.7.1
 Requires PHP: 7.4
-Stable tag: 1.6
+Stable tag: 1.6.1
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,10 @@ directory take precedence. For example, `/assets/screenshot-1.png` would win ove
 2. This is the second screen shot
 
 == Changelog ==
+
+= 1.6.1 =
+
+* Treat `none` booking values as empty during professional sync and suppress placeholder booking buttons in the location shortcode.
 
 = 1.6 =
 

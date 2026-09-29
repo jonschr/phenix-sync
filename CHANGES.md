@@ -1,3 +1,7 @@
+## 1.6.1
+
+- Treat `none` booking values as empty during professional sync and suppress placeholder booking buttons in the location shortcode.
+
 ## 1.6
 
 - Stopped logging expected stale, duplicate, and out-of-order sync workers while retaining all worker safety checks and actionable failure logs.

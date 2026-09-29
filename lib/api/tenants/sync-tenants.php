@@ -978,6 +978,11 @@ function phenixsync_professionals_maybe_create_post( $professional ) {
 	return $new_professional_post_id;
 }
 
+function phenixsync_clean_booking_link( $value ) {
+	$value = trim( (string) $value );
+	return preg_match( '~^(?:https?://)?none/?$~i', $value ) ? '' : esc_url_raw( $value );
+}
+
 /**
  * Update the post
  *
@@ -1028,7 +1033,7 @@ function phenixsync_professionals_update_post( $professional, $post_id ) {
 		'facebook'       => esc_url_raw( isset( $professional['facebook'] ) ? $professional['facebook'] : '' ),
 		'x'              => sanitize_text_field( isset( $professional['x'] ) ? $professional['x'] : '' ),
 		'website'        => esc_url_raw( isset( $professional['website'] ) ? $professional['website'] : '' ),
-		'booking_link'   => esc_url_raw( isset( $professional['booking_link'] ) ? $professional['booking_link'] : '' ),
+		'booking_link'   => phenixsync_clean_booking_link( isset( $professional['booking_link'] ) ? $professional['booking_link'] : '' ),
 		'photo'          => esc_url_raw( isset( $professional['photo'] ) ? $professional['photo'] : '' ),
 		'bio'            => sanitize_textarea_field( isset( $professional['bio'] ) ? $professional['bio'] : '' ),
 		'gallery'        => phenixsync_process_gallery_data( isset( $professional['gallery'] ) ? $professional['gallery'] : array() ),

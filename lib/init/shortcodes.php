@@ -441,7 +441,7 @@ function phenix_location_professional_each() {
 	$phone = get_post_meta( get_the_ID(), 'phone', true );
 	$email = get_post_meta( get_the_ID(), 'email', true );
 	$website = get_post_meta( get_the_ID(), 'website', true );
-	$booking_link = get_post_meta( get_the_ID(), 'booking_link', true );
+	$booking_link = phenixsync_clean_booking_link( get_post_meta( get_the_ID(), 'booking_link', true ) );
 	$facebook = get_post_meta( get_the_ID(), 'facebook', true );
 	$x = get_post_meta( get_the_ID(), 'x', true );
 	$instagram = get_post_meta( get_the_ID(), 'instagram', true );
